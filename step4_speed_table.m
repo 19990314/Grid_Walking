@@ -7,87 +7,67 @@ matFiles = dir(fullfile(project_folder, '*centroid.mat'));
 % Define output file path
 outputFile = fullfile(project_folder, 'grid_speed_stat_check.xlsx');
 
-% Check if output already exists
+% Load existing table if it exists, otherwise start fresh
 if exist(outputFile, 'file')
-    choice = questdlg('Output file already exists. What would you like to do?', ...
-        'File Exists', ...
-        'Overwrite', 'Skip existing', 'Cancel', 'Skip existing');
-    
-    if strcmp(choice, 'Cancel')
-        fprintf('Operation cancelled by user.\n');
-        return;
-    elseif strcmp(choice, 'Skip existing')
-        % Load existing results
-        existingTable = readtable(outputFile);
-        processedFiles = existingTable.FilePrefix;
-        fprintf('Found existing output with %d entries. Will skip processed files.\n', height(existingTable));
-    else
-        processedFiles = {};  % Empty = process all
-        fprintf('Will overwrite existing file.\n');
-    end
+    existingTable = readtable(outputFile);
+    existingTable.FilePrefix = cellstr(existingTable.FilePrefix);
+    fprintf('Found existing output with %d entries. Will skip already-processed files.\n', height(existingTable));
 else
-    processedFiles = {};  % No existing file, process all
+    existingTable = [];
     fprintf('No existing output found. Will process all files.\n');
 end
 
-% Initialize cell array for output
-fileShortNames = {};
-speedMedians = [];
-nSkipped = 0;
+nSkipped  = 0;
 nProcessed = 0;
 
 fprintf('\nProcessing %d mat files...\n', length(matFiles));
 
 for i = 1:length(matFiles)
-    fileName = matFiles(i).name;
-    fullPath = fullfile(project_folder, fileName);
-    
-    % Extract short name
+    fileName  = matFiles(i).name;
+    fullPath  = fullfile(project_folder, fileName);
     shortName = fileName(1:min(7, end));
-    
-    % Check if already processed
-    if ~isempty(processedFiles) && ismember(shortName, processedFiles)
-        % Skip this file - already processed
+
+    % Skip if already in the table
+    if ~isempty(existingTable) && ismember(shortName, existingTable.FilePrefix)
         nSkipped = nSkipped + 1;
         fprintf('  [%d/%d] Skipping %s (already processed)\n', i, length(matFiles), shortName);
-        
-        % Add existing data to output
-        idx = find(strcmp(processedFiles, shortName), 1);
-        fileShortNames{end+1,1} = shortName;
-        speedMedians(end+1,1) = existingTable.("MedianSpeed pixels/frame")(idx);
         continue;
     end
-    
+
     % Process this file
     fprintf('  [%d/%d] Processing %s...\n', i, length(matFiles), shortName);
-    
-    % Load file
     data = load(fullPath);
-    
-    % Check if 'speed' variable exists and is a vector
+
     if isfield(data, 'speed') && isnumeric(data.speed) && isvector(data.speed)
-        medianSpeed = median(data.speed, 'omitnan');  % omit NaNs
+        medianSpeed = median(data.speed, 'omitnan');
     elseif isfield(data, 'speed_px_per_frame') && isnumeric(data.speed_px_per_frame) && isvector(data.speed_px_per_frame)
-        medianSpeed = median(data.speed_px_per_frame, 'omitnan');  % omit NaNs
+        medianSpeed = median(data.speed_px_per_frame, 'omitnan');
     else
         warning('File %s does not contain a valid ''speed'' variable.', fileName);
         medianSpeed = NaN;
     end
-    
-    % Store first 7 characters of filename and speed median
-    fileShortNames{end+1,1} = shortName;
-    speedMedians(end+1,1) = medianSpeed;
+
+    newRow = table({shortName}, medianSpeed, ...
+        'VariableNames', {'FilePrefix', 'MedianSpeed pixels/frame'});
+
+    if isempty(existingTable)
+        existingTable = newRow;
+    else
+        existingTable = [existingTable; newRow];
+    end
+
+    writetable(existingTable, outputFile);
     nProcessed = nProcessed + 1;
+    fprintf('  Saved entry for %s\n', shortName);
 end
 
-% Convert to table
-T = table(fileShortNames, speedMedians, ...
-    'VariableNames', {'FilePrefix', 'MedianSpeed pixels/frame'});
+% -------------------- DERIVED COLUMNS --------------------
+T = existingTable;
+T.FilePrefix = cellstr(T.FilePrefix);
 
-% -------------------- NEW COLUMNS --------------------
 % ID = first 4 chars, Day = last char of 7-char prefix
-T.ID  = cellfun(@(x) x(1:min(4,length(x))),  T.FilePrefix, 'UniformOutput', false);
-T.Day = cellfun(@(x) x(end),                  T.FilePrefix, 'UniformOutput', false);
+T.ID  = cellfun(@(x) x(1:min(4,length(x))), T.FilePrefix, 'UniformOutput', false);
+T.Day = cellfun(@(x) x(end),                 T.FilePrefix, 'UniformOutput', false);
 
 % Load pixels-per-cm lookup and match by first 7 chars of VideoName
 ppcFile  = fullfile(project_folder, 'pixels_per_cm_output.xlsx');
@@ -105,14 +85,13 @@ if any(isnan(T.PixelsPerCm))
 end
 
 T.("Speed cm/s") = T.("MedianSpeed pixels/frame") .* 30 ./ T.PixelsPerCm;
-% -----------------------------------------------------
+% ---------------------------------------------------------
 
-% Display summary
 fprintf('\n=== Processing Summary ===\n');
-fprintf('Total files: %d\n', length(matFiles));
-fprintf('Processed: %d\n', nProcessed);
-fprintf('Skipped: %d\n', nSkipped);
-fprintf('Total in output: %d\n', height(T));
+fprintf('Total files:      %d\n', length(matFiles));
+fprintf('Newly processed:  %d\n', nProcessed);
+fprintf('Skipped:          %d\n', nSkipped);
+fprintf('Total in output:  %d\n', height(T));
 
 disp(T)
 

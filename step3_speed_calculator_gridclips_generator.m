@@ -51,6 +51,15 @@ for i = 1:length(videoFiles)
     roi = videoFiles(i).roiXYWH;
     videoFile = videoFiles(i).name;
     videoPath = fullfile(videoFiles(i).folder, videoFiles(i).name);
+    [~, baseName, ~] = fileparts(videoFiles(i).name);
+
+    % Skip if centroid .mat already exists
+    matPath = fullfile(outputFolder, [baseName '_centroid.mat']);
+    if exist(matPath, 'file')
+        fprintf('  Skipping %s (centroid.mat already exists)\n', videoFiles(i).name);
+        continue;
+    end
+
     disp(['Processing: ', videoFiles(i).name]);
 
     % Read video
@@ -58,7 +67,6 @@ for i = 1:length(videoFiles)
     frameRate = video.FrameRate;
 
     % Prepare output video writer
-    [~, baseName, ~] = fileparts(videoFiles(i).name);
     outputName = [baseName, '_with_tracking.mp4'];
     outputPath = fullfile(outputFolder, outputName);
     outputVideo = VideoWriter(outputPath, 'MPEG-4');
