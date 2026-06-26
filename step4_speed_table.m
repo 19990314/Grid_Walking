@@ -84,7 +84,7 @@ if any(isnan(T.PixelsPerCm))
         strjoin(T.FilePrefix(isnan(T.PixelsPerCm)), ', '));
 end
 
-T.("Speed cm/s") = T.("MedianSpeed pixels/frame") .* 30 ./ T.PixelsPerCm;
+T.("Speed cm/s") = T.("MedianSpeedPixels_frame") .* 30 ./ T.PixelsPerCm;
 % ---------------------------------------------------------
 
 fprintf('\n=== Processing Summary ===\n');
