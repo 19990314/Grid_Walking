@@ -1,3 +1,4 @@
+
 % if you have run step1, you should have project_folder and videoFiles setted, if not,
 % choose yours in a promp window
 
@@ -50,6 +51,15 @@ for i = 1:length(videoFiles)
     roi = videoFiles(i).roiXYWH;
     videoFile = videoFiles(i).name;
     videoPath = fullfile(videoFiles(i).folder, videoFiles(i).name);
+    [~, baseName, ~] = fileparts(videoFiles(i).name);
+
+    % Skip if centroid .mat already exists
+    matPath = fullfile(outputFolder, [baseName '_centroid.mat']);
+    if exist(matPath, 'file')
+        fprintf('  Skipping %s (centroid.mat already exists)\n', videoFiles(i).name);
+        continue;
+    end
+
     disp(['Processing: ', videoFiles(i).name]);
 
     % Read video
@@ -57,7 +67,6 @@ for i = 1:length(videoFiles)
     frameRate = video.FrameRate;
 
     % Prepare output video writer
-    [~, baseName, ~] = fileparts(videoFiles(i).name);
     outputName = [baseName, '_with_tracking.mp4'];
     outputPath = fullfile(outputFolder, outputName);
     outputVideo = VideoWriter(outputPath, 'MPEG-4');
@@ -82,12 +91,26 @@ for i = 1:length(videoFiles)
         % Crop the frame to the region of interest (ROI)
         roiFrame = imcrop(grayFrame, roi);
         
-        % Thresholding - assuming the mouse is the darkest object
-        binaryFrame = roiFrame < 50; % Adjust threshold value as needed, usually around 50 is good to spot the mouse depending on the video 
-        
-        % Remove small objects (noise)
-        binaryFrame = bwareaopen(binaryFrame, 700); % Adjust area size as needed
-        
+% Compute background once per video (median of first 100 frames)
+bgFrames = zeros([size(roiFrame), 100], 'uint8');
+tempVid = VideoReader(videoPath);
+for k = 1:100
+    if hasFrame(tempVid)
+        f = readFrame(tempVid);
+        bgFrames(:,:,k) = imcrop(rgb2gray(f), roi);
+    end
+end
+background = median(bgFrames, 3);
+
+% Then in the per-frame loop, replace the threshold line with:
+diffFrame = imabsdiff(roiFrame, background);
+binaryFrame = diffFrame > 20;  % threshold on the DIFFERENCE, not raw brightness
+        if mod(frameNumber, 100) == 0
+            figure(2); clf;
+            subplot(1,2,1); imshow(roiFrame); title('ROI grayscale');
+            subplot(1,2,2); imshow(binaryFrame); title('Binary mask');
+            drawnow;
+        end
         % Find the largest connected component (the mouse)
         stats = regionprops(binaryFrame, 'Area', 'Centroid');
         if isempty(stats)
@@ -131,7 +154,7 @@ for i = 1:length(videoFiles)
     close(outputVideo);
     
     % Calculate speed based on the x and y coordinates
-    speed_px_per_frame = sqrt(diff(centroidData.x).^2 + diff(centroidData.y).^2);
+    speed = sqrt(diff(centroidData.x).^2 + diff(centroidData.y).^2);
     
     % Threshold speed to find frames with speed above a certain value
     speedThreshold = 3; % pixels/second
@@ -166,9 +189,10 @@ for i = 1:length(videoFiles)
         
         % Check for overlap with existing clips
         overlapTooHigh = false;
-        for k = 1:size(selectedClips, 1)
-            existingStart = selectedClips(k, 1);
-            existingEnd = selectedClips(k, 2);
+        for i = 1:size(selectedClips, 1)
+            disp(i);
+            existingStart = selectedClips(i, 1);
+            existingEnd = selectedClips(i, 2);
             
             % Calculate the overlap between the new clip and the existing clip
             overlap = max(0, min(endFrame, existingEnd) - max(startFrame, existingStart) + 1);
@@ -194,12 +218,12 @@ for i = 1:length(videoFiles)
     if ~exist(subfolder, 'dir')
         mkdir(subfolder);
     end
-    for clipIdx = 1:size(selectedClips, 1)
-        startFrame = selectedClips(clipIdx, 1);
-        endFrame = selectedClips(clipIdx, 2);
+    for i = 1:size(selectedClips, 1)
+        startFrame = selectedClips(i, 1);
+        endFrame = selectedClips(i, 2);
         
         % Prepare a video writer for the clip
-        clipFileName = fullfile(subfolder, sprintf('clip_%03d.mp4', clipIdx));
+        clipFileName = fullfile(subfolder, sprintf('clip_%03d.mp4', i));
         clipVideo = VideoWriter(clipFileName, 'MPEG-4');
         open(clipVideo);
         
@@ -221,47 +245,6 @@ for i = 1:length(videoFiles)
     % Save the centroid data and speed into a .mat file
     save(fullfile(outputFolder, [baseName '_centroid.mat']), 'centroidData', 'speed');
     
-    %% -------------------- OUTPUT VERIFICATION --------------------
-    % Check outputs were created successfully
-    fprintf('\n=== Processing Summary for %s ===\n', baseName);
-    
-    % Check tracking video
-    if exist(outputPath, 'file')
-        fprintf('✓ Tracking video created: %s\n', outputName);
-    else
-        fprintf('✗ ERROR: Tracking video NOT created!\n');
-    end
-    
-    % Check centroid data
-    centroidMatFile = fullfile(outputFolder, [baseName '_centroid.mat']);
-    if exist(centroidMatFile, 'file')
-        fprintf('✓ Centroid data saved: %s_centroid.mat\n', baseName);
-    else
-        fprintf('✗ ERROR: Centroid data NOT saved!\n');
-    end
-    
-    % Check clips
-    clipsCreated = dir(fullfile(subfolder, 'clip_*.mp4'));
-    if length(clipsCreated) > 0
-        fprintf('✓ Created %d clips (requested %d) in: %s\n', ...
-            length(clipsCreated), numClips, subfolder);
-        if length(clipsCreated) < numClips
-            fprintf('  WARNING: Only %d/%d clips created (insufficient non-overlapping high-speed frames)\n', ...
-                length(clipsCreated), numClips);
-        end
-    else
-        fprintf('✗ ERROR: No clips created!\n');
-    end
-    
-    fprintf('=========================================\n\n');
-    
     disp('Tracking complete, video saved, centroid coordinates and speed exported to centroid_coordinates.mat.');
-    disp('High-speed clips saved to the clips folder.');
+    disp('High-speed clips saved to the HighSpeedClips folder.');
 end
-
-%% -------------------- FINAL SUMMARY --------------------
-fprintf('\n========== ALL PROCESSING COMPLETE ==========\n');
-fprintf('Total videos processed: %d\n', length(videoFiles));
-fprintf('Output folder: %s\n', outputFolder);
-fprintf('Clips folder: %s\n', clipBaseFolder);
-fprintf('=============================================\n');
