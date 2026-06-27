@@ -51,6 +51,15 @@ for i = 1:length(videoFiles)
     roi = videoFiles(i).roiXYWH;
     videoFile = videoFiles(i).name;
     videoPath = fullfile(videoFiles(i).folder, videoFiles(i).name);
+    [~, baseName, ~] = fileparts(videoFiles(i).name);
+
+    % Skip if centroid .mat already exists
+    matPath = fullfile(outputFolder, [baseName '_centroid.mat']);
+    if exist(matPath, 'file')
+        fprintf('  Skipping %s (centroid.mat already exists)\n', videoFiles(i).name);
+        continue;
+    end
+
     disp(['Processing: ', videoFiles(i).name]);
 
     % Read video
@@ -58,7 +67,6 @@ for i = 1:length(videoFiles)
     frameRate = video.FrameRate;
 
     % Prepare output video writer
-    [~, baseName, ~] = fileparts(videoFiles(i).name);
     outputName = [baseName, '_with_tracking.mp4'];
     outputPath = fullfile(outputFolder, outputName);
     outputVideo = VideoWriter(outputPath, 'MPEG-4');
@@ -71,6 +79,16 @@ for i = 1:length(videoFiles)
     
     % Frame counter
     frameNumber = 0;
+     % Compute background once per video (median of first 100 frames)
+    bgFrames = zeros([size(roiFrame), 100], 'uint8');
+    tempVid = VideoReader(videoPath);
+    for k = 1:100
+        if hasFrame(tempVid)
+           f = readFrame(tempVid);
+           bgFrames(:,:,k) = imcrop(rgb2gray(f), roi);
+        end
+    end
+    background = median(bgFrames, 3);
     
     % Loop through each frame in the video
     while hasFrame(video)
@@ -83,12 +101,17 @@ for i = 1:length(videoFiles)
         % Crop the frame to the region of interest (ROI)
         roiFrame = imcrop(grayFrame, roi);
         
-        % Thresholding - assuming the mouse is the darkest object
-        binaryFrame = roiFrame < 50; % Adjust threshold value as needed, usually around 50 is good to spot the mouse depending on the video 
+        % Then in the per-frame loop, replace the threshold line with:
+        diffFrame = imabsdiff(roiFrame, background);
+        binaryFrame = diffFrame > 20;  % threshold on the DIFFERENCE, not raw brightness
+
         
-        % Remove small objects (noise)
-        binaryFrame = bwareaopen(binaryFrame, 700); % Adjust area size as needed
-        
+        if mod(frameNumber, 100) == 0
+            figure(2); clf;
+            subplot(1,2,1); imshow(roiFrame); title('ROI grayscale');
+            subplot(1,2,2); imshow(binaryFrame); title('Binary mask');
+            drawnow;
+        end
         % Find the largest connected component (the mouse)
         stats = regionprops(binaryFrame, 'Area', 'Centroid');
         if isempty(stats)
