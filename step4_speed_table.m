@@ -9,8 +9,10 @@ outputFile = fullfile(project_folder, 'grid_speed_stat_check.xlsx');
 
 % Load existing table if it exists, otherwise start fresh
 if exist(outputFile, 'file')
-    existingTable = readtable(outputFile);
-    existingTable.FilePrefix = cellstr(existingTable.FilePrefix);
+    raw = readtable(outputFile);
+    raw.FilePrefix = cellstr(raw.FilePrefix);
+    % Keep only the 2 base columns for accumulation; derived columns rebuilt at the end
+    existingTable = raw(:, {'FilePrefix', 'MedianSpeed pixels/frame'});
     fprintf('Found existing output with %d entries. Will skip already-processed files.\n', height(existingTable));
 else
     existingTable = [];
