@@ -5,12 +5,14 @@ project_folder = uigetdir([], 'Select Folder Containing mat files');
 matFiles = dir(fullfile(project_folder, '*centroid.mat'));
 
 % Define output file path
-outputFile = fullfile(project_folder, 'grid_speed_stat_check.xlsx');
+outputFile = fullfile(project_folder, 'grid_speed_stat.xlsx');
 
 % Load existing table if it exists, otherwise start fresh
 if exist(outputFile, 'file')
-    existingTable = readtable(outputFile);
-    existingTable.FilePrefix = cellstr(existingTable.FilePrefix);
+    raw = readtable(outputFile);
+    raw.FilePrefix = cellstr(raw.FilePrefix);
+    % Keep only the 2 base columns for accumulation; derived columns rebuilt at the end
+    existingTable = raw(:, {'FilePrefix', 'MedianSpeedPixels_frame'});
     fprintf('Found existing output with %d entries. Will skip already-processed files.\n', height(existingTable));
 else
     existingTable = [];
@@ -48,7 +50,7 @@ for i = 1:length(matFiles)
     end
 
     newRow = table({shortName}, medianSpeed, ...
-        'VariableNames', {'FilePrefix', 'MedianSpeed pixels/frame'});
+        'VariableNames', {'FilePrefix', 'MedianSpeedPixels_frame'});
 
     if isempty(existingTable)
         existingTable = newRow;
