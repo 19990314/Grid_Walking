@@ -66,9 +66,10 @@ fprintf('\n%d video(s) to process.\n', numel(toProcess));
 
 %% Pre-compute backgrounds and sample frames for all unprocessed videos
 fprintf('Computing backgrounds...\n');
-backgrounds  = cell(numel(toProcess), 1);
-previewDiffs = cell(numel(toProcess), 1);
-frameRates   = zeros(numel(toProcess), 1);
+backgrounds   = cell(numel(toProcess), 1);
+previewDiffs  = cell(numel(toProcess), 1);
+previewFrames = cell(numel(toProcess), 1);  % raw grayscale ROI frame for display & clicking
+frameRates    = zeros(numel(toProcess), 1);
 
 for ti = 1:numel(toProcess)
     vi        = toProcess(ti);
@@ -86,38 +87,43 @@ for ti = 1:numel(toProcess)
     end
     backgrounds{ti} = uint8(median(double(bgStack), 3));
 
-    % Sample frame from middle of video
+    % Sample frame from middle of video — same frame used for diff AND display
     previewVid = VideoReader(videoPath);
     previewVid.CurrentTime = previewVid.Duration / 2;
-    previewFrame = readFrame(previewVid);
-    previewDiffs{ti} = imabsdiff(imcrop(rgb2gray(previewFrame), roi), backgrounds{ti});
+    previewGray = imcrop(rgb2gray(readFrame(previewVid)), roi);
+    previewFrames{ti} = previewGray;
+    previewDiffs{ti}  = imabsdiff(previewGray, backgrounds{ti});
 
     fprintf('  [%d/%d] %s\n', ti, numel(toProcess), videoFiles(vi).name);
 end
 
 %% Per-video setup — threshold + click to mark mouse — all upfront
 fprintf('\nSetup phase: set threshold and click on the mouse for each video.\n\n');
-thresholds   = zeros(numel(toProcess), 1);
-initClicks   = zeros(numel(toProcess), 2);   % [x y] in ROI coordinates
+thresholds = zeros(numel(toProcess), 1);
+initClicks = zeros(numel(toProcess), 2);   % [x y] in ROI coordinates
 
 for ti = 1:numel(toProcess)
     currentThresh = diffThreshold;
-    vidName = videoFiles(toProcess(ti)).name;
-    roi     = videoFiles(toProcess(ti)).roiXYWH;
+    vidName   = videoFiles(toProcess(ti)).name;
+    grayFrame = previewFrames{ti};   % raw grayscale ROI — same frame as diff
 
-    % Load grayscale preview frame (ROI only) for click reference
-    previewVid = VideoReader(fullfile(videoFiles(toProcess(ti)).folder, videoFiles(toProcess(ti)).name));
-    previewVid.CurrentTime = previewVid.Duration / 2;
-    previewGray = imcrop(rgb2gray(readFrame(previewVid)), roi);
-
-    % --- Threshold tuning ---
+    % --- Threshold tuning: left = raw frame with blob outlines, right = binary mask ---
     while true
         binaryPreview = previewDiffs{ti} > currentThresh;
         binaryPreview = bwareaopen(binaryPreview, minBlobArea);
 
+        % Overlay blob outlines on the raw grayscale frame
+        overlay = repmat(grayFrame, 1, 1, 3);
+        outline = bwperim(binaryPreview);
+        overlay(:,:,1) = overlay(:,:,1) + uint8(outline) * 180;  % red outline
+        overlay(:,:,2) = overlay(:,:,2) - uint8(outline) * 50;
+        overlay(:,:,3) = overlay(:,:,3) - uint8(outline) * 50;
+
         figure(1); clf;
-        subplot(1,2,1); imshow(previewDiffs{ti}, []); title('Difference image');
-        subplot(1,2,2); imshow(binaryPreview); title(sprintf('Binary mask (threshold = %d)', currentThresh));
+        subplot(1,2,1); imshow(overlay);
+        title('Raw frame (red = detected blobs)');
+        subplot(1,2,2); imshow(binaryPreview);
+        title(sprintf('Binary mask (threshold = %d)', currentThresh));
         sgtitle(sprintf('[%d/%d] %s', ti, numel(toProcess), vidName), 'Interpreter', 'none');
         drawnow;
 
@@ -135,16 +141,16 @@ for ti = 1:numel(toProcess)
     end
     thresholds(ti) = currentThresh;
 
-    % --- Click to mark the mouse initial position ---
+    % --- Click on the mouse in the raw frame ---
     figure(1); clf;
-    imshow(previewGray);
-    title(sprintf('[%d/%d] %s — click ON THE MOUSE to set initial position', ...
-        ti, numel(toProcess), vidName), 'Interpreter', 'none');
+    imshow(overlay);
+    title(sprintf('[%d/%d] %s  —  CLICK ON THE MOUSE', ti, numel(toProcess), vidName), ...
+        'Interpreter', 'none', 'Color', 'r', 'FontSize', 13);
     drawnow;
     fprintf('  Click on the mouse in the figure...\n');
-    [cx, cy] = ginput(1);   % one click in ROI coordinates
+    [cx, cy] = ginput(1);
     initClicks(ti, :) = [cx, cy];
-    fprintf('  Marked mouse at ROI position (%.0f, %.0f)\n\n', cx, cy);
+    fprintf('  Marked mouse at (%.0f, %.0f)\n\n', cx, cy);
 end
 close(1);
 fprintf('Setup complete. Starting processing...\n\n');
