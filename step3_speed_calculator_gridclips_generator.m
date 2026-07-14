@@ -95,26 +95,33 @@ for ti = 1:numel(toProcess)
     fprintf('  [%d/%d] %s\n', ti, numel(toProcess), videoFiles(vi).name);
 end
 
-%% Per-video threshold selection — all upfront, then process uninterrupted
-fprintf('\nSetting thresholds for all videos before processing begins.\n\n');
-thresholds = zeros(numel(toProcess), 1);
+%% Per-video setup — threshold + click to mark mouse — all upfront
+fprintf('\nSetup phase: set threshold and click on the mouse for each video.\n\n');
+thresholds   = zeros(numel(toProcess), 1);
+initClicks   = zeros(numel(toProcess), 2);   % [x y] in ROI coordinates
 
 for ti = 1:numel(toProcess)
     currentThresh = diffThreshold;
     vidName = videoFiles(toProcess(ti)).name;
+    roi     = videoFiles(toProcess(ti)).roiXYWH;
 
+    % Load grayscale preview frame (ROI only) for click reference
+    previewVid = VideoReader(fullfile(videoFiles(toProcess(ti)).folder, videoFiles(toProcess(ti)).name));
+    previewVid.CurrentTime = previewVid.Duration / 2;
+    previewGray = imcrop(rgb2gray(readFrame(previewVid)), roi);
+
+    % --- Threshold tuning ---
     while true
         binaryPreview = previewDiffs{ti} > currentThresh;
         binaryPreview = bwareaopen(binaryPreview, minBlobArea);
 
         figure(1); clf;
         subplot(1,2,1); imshow(previewDiffs{ti}, []); title('Difference image');
-        subplot(1,2,2); imshow(binaryPreview);        title(sprintf('Binary mask (threshold = %d)', currentThresh));
+        subplot(1,2,2); imshow(binaryPreview); title(sprintf('Binary mask (threshold = %d)', currentThresh));
         sgtitle(sprintf('[%d/%d] %s', ti, numel(toProcess), vidName), 'Interpreter', 'none');
         drawnow;
 
-        answer = input(sprintf('  [%d/%d] %s — threshold = %d. Enter to accept, or type new value: ', ...
-            ti, numel(toProcess), vidName, currentThresh), 's');
+        answer = input(sprintf('  Threshold = %d. Enter to accept, or type new value: ', currentThresh), 's');
         if isempty(answer)
             break;
         end
@@ -126,12 +133,21 @@ for ti = 1:numel(toProcess)
             break;
         end
     end
-
     thresholds(ti) = currentThresh;
-    fprintf('  Saved threshold = %d for %s\n\n', currentThresh, vidName);
+
+    % --- Click to mark the mouse initial position ---
+    figure(1); clf;
+    imshow(previewGray);
+    title(sprintf('[%d/%d] %s — click ON THE MOUSE to set initial position', ...
+        ti, numel(toProcess), vidName), 'Interpreter', 'none');
+    drawnow;
+    fprintf('  Click on the mouse in the figure...\n');
+    [cx, cy] = ginput(1);   % one click in ROI coordinates
+    initClicks(ti, :) = [cx, cy];
+    fprintf('  Marked mouse at ROI position (%.0f, %.0f)\n\n', cx, cy);
 end
 close(1);
-fprintf('All thresholds set. Starting processing...\n\n');
+fprintf('Setup complete. Starting processing...\n\n');
 
 %% Process each video uninterrupted
 for ti = 1:numel(toProcess)
@@ -149,7 +165,7 @@ for ti = 1:numel(toProcess)
     centroidData.x = [];
     centroidData.y = [];
     frameNumber = 0;
-    lastCentroid = [];  % for temporal continuity tracking
+    lastCentroid = initClicks(ti, :);  % seeded from user click — ROI coordinates
 
     if saveTrackingVideo
         outputVideo = VideoWriter(fullfile(outputFolder, [baseName '_with_tracking.mp4']), 'MPEG-4');
@@ -170,21 +186,16 @@ for ti = 1:numel(toProcess)
         if isempty(stats)
             centroidData.x(end+1,1) = NaN;
             centroidData.y(end+1,1) = NaN;
-            lastCentroid = [];  % reset so next detection re-initialises from lowest blob
+            % keep lastCentroid so re-detection resumes from last known position
             if saveTrackingVideo, writeVideo(outputVideo, frame); end
             continue;
         end
 
         centroids = vertcat(stats.Centroid);
 
-        if isempty(lastCentroid)
-            % First detection: pick lowest blob (most likely on the grid)
-            [~, idx] = max(centroids(:, 2));
-        else
-            % Subsequent frames: pick blob closest to last known position
-            dists = sum((centroids - lastCentroid).^2, 2);
-            [~, idx] = min(dists);
-        end
+        % Always pick blob closest to last known position (seeded from user click)
+        dists = sum((centroids - lastCentroid).^2, 2);
+        [~, idx] = min(dists);
 
         centroid = stats(idx).Centroid;
         lastCentroid = centroid;  % update for next frame
