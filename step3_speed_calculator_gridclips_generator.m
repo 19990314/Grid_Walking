@@ -95,42 +95,43 @@ for ti = 1:numel(toProcess)
     fprintf('  [%d/%d] %s\n', ti, numel(toProcess), videoFiles(vi).name);
 end
 
-%% Global threshold selection — one montage, one threshold for all videos
-fprintf('\nShowing preview montage. Adjust threshold until detection looks good for all videos.\n');
-nCols = min(3, numel(toProcess));
-nRows = ceil(numel(toProcess) / nCols);
+%% Per-video threshold selection — all upfront, then process uninterrupted
+fprintf('\nSetting thresholds for all videos before processing begins.\n\n');
+thresholds = zeros(numel(toProcess), 1);
 
-while true
-    figure(1); clf;
-    for ti = 1:numel(toProcess)
-        binaryPreview = previewDiffs{ti} > diffThreshold;
+for ti = 1:numel(toProcess)
+    currentThresh = diffThreshold;
+    vidName = videoFiles(toProcess(ti)).name;
+
+    while true
+        binaryPreview = previewDiffs{ti} > currentThresh;
         binaryPreview = bwareaopen(binaryPreview, minBlobArea);
 
-        subplot(nRows, nCols*2, (ti-1)*2 + 1);
-        imshow(previewDiffs{ti}, []);
-        title(videoFiles(toProcess(ti)).name, 'Interpreter', 'none', 'FontSize', 7);
+        figure(1); clf;
+        subplot(1,2,1); imshow(previewDiffs{ti}, []); title('Difference image');
+        subplot(1,2,2); imshow(binaryPreview);        title(sprintf('Binary mask (threshold = %d)', currentThresh));
+        sgtitle(sprintf('[%d/%d] %s', ti, numel(toProcess), vidName), 'Interpreter', 'none');
+        drawnow;
 
-        subplot(nRows, nCols*2, (ti-1)*2 + 2);
-        imshow(binaryPreview);
-        title(sprintf('mask (thr=%d)', diffThreshold), 'FontSize', 7);
+        answer = input(sprintf('  [%d/%d] %s — threshold = %d. Enter to accept, or type new value: ', ...
+            ti, numel(toProcess), vidName, currentThresh), 's');
+        if isempty(answer)
+            break;
+        end
+        val = str2double(answer);
+        if ~isnan(val) && val > 0
+            currentThresh = val;
+        else
+            fprintf('  Invalid input — keeping %d\n', currentThresh);
+            break;
+        end
     end
-    sgtitle(sprintf('Threshold = %d  |  Enter new value or press Enter to proceed', diffThreshold));
-    drawnow;
 
-    answer = input(sprintf('Threshold = %d. Press Enter to accept, or type a new value: ', diffThreshold), 's');
-    if isempty(answer)
-        break;
-    end
-    val = str2double(answer);
-    if ~isnan(val) && val > 0
-        diffThreshold = val;
-    else
-        fprintf('Invalid input — keeping threshold = %d\n', diffThreshold);
-        break;
-    end
+    thresholds(ti) = currentThresh;
+    fprintf('  Saved threshold = %d for %s\n\n', currentThresh, vidName);
 end
 close(1);
-fprintf('Proceeding with threshold = %d\n\n', diffThreshold);
+fprintf('All thresholds set. Starting processing...\n\n');
 
 %% Process each video uninterrupted
 for ti = 1:numel(toProcess)
@@ -142,7 +143,7 @@ for ti = 1:numel(toProcess)
     frameRate = frameRates(ti);
     background = backgrounds{ti};
 
-    fprintf('[%d/%d] Processing: %s\n', ti, numel(toProcess), videoFiles(vi).name);
+    fprintf('[%d/%d] Processing: %s (threshold = %d)\n', ti, numel(toProcess), videoFiles(vi).name, thresholds(ti));
 
     video = VideoReader(videoPath);
     centroidData.x = [];
@@ -161,7 +162,7 @@ for ti = 1:numel(toProcess)
 
         roiFrame    = imcrop(rgb2gray(frame), roi);
         diffFrame   = imabsdiff(roiFrame, background);
-        binaryFrame = diffFrame > diffThreshold;
+        binaryFrame = diffFrame > thresholds(ti);
         binaryFrame = bwareaopen(binaryFrame, minBlobArea);
 
         stats = regionprops(binaryFrame, 'Area', 'Centroid');
