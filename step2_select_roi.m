@@ -4,12 +4,12 @@
 % Note: It is okay your videos are distributed in different subfolders;
 % or saved with other task videos.
 
-clear; clc;
-
 % Folder containing your video files
-project_folder = uigetdir([], 'Select Folder Containing Videos');
-if isequal(project_folder, 0)
-    error('No folder selected. Operation cancelled.');
+if ~exist('project_folder', 'var')
+    project_folder = uigetdir([], 'Select Folder Containing Videos');
+    if isequal(project_folder, 0)
+        error('No folder selected. Operation cancelled.');
+    end
 end
 
 videoFiles = dir(fullfile(project_folder, '**', '*grid.mp4'));

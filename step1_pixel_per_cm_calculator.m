@@ -5,7 +5,9 @@
 % or saved with other task videos.
 
 % Folder containing your video files
-project_folder = uigetdir([], 'Select Folder Containing Videos');
+if ~exist('project_folder', 'var')
+    project_folder = uigetdir([], 'Select Folder Containing Videos');
+end
 videoFiles = dir(fullfile(project_folder, '**', '*grid.mp4'));  % Change to *.avi if needed
 
 % Output data

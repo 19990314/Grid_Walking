@@ -1,11 +1,14 @@
 %% Process mat files with skip logic for existing outputs
 
 % Define folder (change if needed)
-project_folder = uigetdir([], 'Select Folder Containing mat files');
-matFiles = dir(fullfile(project_folder, '*centroid.mat'));
+if ~exist('project_folder', 'var')
+    project_folder = uigetdir([], 'Select Folder Containing mat files');
+end
+outputDir = fullfile(project_folder, 'stats_and_analysis', 'grid');
+matFiles = dir(fullfile(outputDir, '*centroid.mat'));
 
 % Define output file path
-outputFile = fullfile(project_folder, 'grid_speed_stat_check.xlsx');
+outputFile = fullfile(outputDir, 'grid_speed_stat_check.xlsx');
 
 % Load existing table if it exists, otherwise start fresh
 if exist(outputFile, 'file')
@@ -72,7 +75,7 @@ T.ID  = cellfun(@(x) x(1:min(4,length(x))), T.FilePrefix, 'UniformOutput', false
 T.Day = cellfun(@(x) x(end),                 T.FilePrefix, 'UniformOutput', false);
 
 % Load pixels-per-cm lookup and match by first 7 chars of VideoName
-ppcFile  = fullfile(project_folder, 'pixels_per_cm_output.xlsx');
+ppcFile  = fullfile(outputDir, 'pixels_per_cm_output.xlsx');
 ppcTable = readtable(ppcFile);
 ppcTable.VideoPrefix = cellfun(@(x) x(1:min(7,length(x))), ...
     cellstr(ppcTable.VideoName), 'UniformOutput', false);
