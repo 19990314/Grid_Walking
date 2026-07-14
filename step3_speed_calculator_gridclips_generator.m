@@ -5,7 +5,7 @@
 diffThreshold     = 20;    % starting threshold on background-subtracted difference image
 minBlobArea       = 700;   % minimum blob area in pixels (remove noise)
 nBgFrames         = 100;   % number of frames used to estimate background
-saveTrackingVideo = false; % set true to write annotated _with_tracking.mp4 (slow)
+saveTrackingVideo = true;  % set false to skip writing annotated _with_tracking.mp4
 
 %% Variable checks
 if ~exist('project_folder', 'var')
@@ -45,20 +45,57 @@ end
 clipBaseFolder = fullfile(project_folder, 'stats_and_analysis/grid/clips');
 if ~exist(clipBaseFolder, 'dir'), mkdir(clipBaseFolder); end
 
-%% Identify videos that still need processing
-toProcess = [];
+%% Identify what each video needs
+toProcess   = [];   % needs full tracking
+toVideoOnly = [];   % mat exists, only needs tracking video generated
+
 for vi = 1:numel(videoFiles)
     [~, baseName] = fileparts(videoFiles(vi).name);
     matPath = fullfile(outputFolder, [baseName '_centroid.mat']);
+    mp4Path = fullfile(outputFolder, [baseName '_with_tracking.mp4']);
     if ~exist(matPath, 'file')
         toProcess(end+1) = vi;
+    elseif saveTrackingVideo && ~exist(mp4Path, 'file')
+        toVideoOnly(end+1) = vi;
+        fprintf('  %s — mat exists, will generate tracking video\n', videoFiles(vi).name);
     else
-        fprintf('  Skipping %s (centroid.mat already exists)\n', videoFiles(vi).name);
+        fprintf('  Skipping %s (already complete)\n', videoFiles(vi).name);
     end
 end
 
+%% Generate tracking videos for mat-only videos (no re-tracking needed)
+for vi = toVideoOnly
+    [~, baseName] = fileparts(videoFiles(vi).name);
+    matPath   = fullfile(outputFolder, [baseName '_centroid.mat']);
+    mp4Path   = fullfile(outputFolder, [baseName '_with_tracking.mp4']);
+    videoPath = fullfile(videoFiles(vi).folder, videoFiles(vi).name);
+    roi       = videoFiles(vi).roiXYWH;
+
+    fprintf('\nGenerating tracking video: %s\n', videoFiles(vi).name);
+    data = load(matPath);
+    cx = data.centroidData.x;
+    cy = data.centroidData.y;
+
+    vid = VideoReader(videoPath);
+    outVid = VideoWriter(mp4Path, 'MPEG-4');
+    outVid.FrameRate = vid.FrameRate;
+    open(outVid);
+    fIdx = 0;
+    while hasFrame(vid)
+        frame = readFrame(vid);
+        fIdx  = fIdx + 1;
+        if fIdx <= numel(cx) && ~isnan(cx(fIdx))
+            frame = insertMarker(frame, [cx(fIdx) cy(fIdx)], 'o', 'Color', 'red', 'Size', 10);
+        end
+        frame = insertShape(frame, 'Rectangle', roi, 'Color', 'yellow', 'LineWidth', 3);
+        writeVideo(outVid, frame);
+    end
+    close(outVid);
+    fprintf('  Saved: %s\n', mp4Path);
+end
+
 if isempty(toProcess)
-    disp('All videos already processed. Nothing to do.');
+    disp('All tracking done. Nothing more to process.');
     return;
 end
 
