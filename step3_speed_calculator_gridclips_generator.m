@@ -78,12 +78,17 @@ for ti = 1:numel(toProcess)
 
     bgVid = VideoReader(videoPath);
     frameRates(ti) = bgVid.FrameRate;
+    totalFrames = floor(bgVid.Duration * bgVid.FrameRate);
+
+    % Sample nBgFrames evenly across the entire video so the mouse is never
+    % in the same location for the majority of samples -> clean median background
+    sampleIdx = round(linspace(1, totalFrames, nBgFrames));
     bgStack = [];
-    k = 0;
-    while hasFrame(bgVid) && k < nBgFrames
-        f = readFrame(bgVid);
-        bgStack(:,:,k+1) = imcrop(rgb2gray(f), roi);
-        k = k + 1;
+    for k = 1:numel(sampleIdx)
+        bgVid.CurrentTime = (sampleIdx(k) - 1) / bgVid.FrameRate;
+        if hasFrame(bgVid)
+            bgStack(:,:,k) = imcrop(rgb2gray(readFrame(bgVid)), roi);
+        end
     end
     backgrounds{ti} = uint8(median(double(bgStack), 3));
 
