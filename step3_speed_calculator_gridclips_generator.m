@@ -136,7 +136,8 @@ for vi = 1:length(videoFiles)
             continue;
         end
 
-        [~, idx] = max([stats.Area]);
+        centroids = vertcat(stats.Centroid);
+        [~, idx]  = max(centroids(:, 2));  % lowest position in frame = on the grid, not reflection
         centroid  = stats(idx).Centroid + [roi(1), roi(2)];
         centroidData.x(end+1,1) = centroid(1);
         centroidData.y(end+1,1) = centroid(2);
