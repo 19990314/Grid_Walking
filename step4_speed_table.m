@@ -14,8 +14,14 @@ outputFile = fullfile(outputDir, 'grid_speed_stat_check.xlsx');
 if exist(outputFile, 'file')
     raw = readtable(outputFile);
     raw.FilePrefix = cellstr(raw.FilePrefix);
-    % Keep only the 2 base columns for accumulation; derived columns rebuilt at the end
-    existingTable = raw(:, {'FilePrefix', 'MedianSpeed pixels/frame'});
+    % Keep only base columns for accumulation; derived columns rebuilt at the end
+    if ismember('MeanSpeed pixels/frame', raw.Properties.VariableNames)
+        existingTable = raw(:, {'FilePrefix', 'MedianSpeed pixels/frame', 'MeanSpeed pixels/frame'});
+    else
+        % older file without mean column — add NaN column so schema matches
+        raw.("MeanSpeed pixels/frame") = nan(height(raw), 1);
+        existingTable = raw(:, {'FilePrefix', 'MedianSpeed pixels/frame', 'MeanSpeed pixels/frame'});
+    end
     fprintf('Found existing output with %d entries. Will skip already-processed files.\n', height(existingTable));
 else
     existingTable = [];
@@ -41,19 +47,22 @@ for i = 1:length(matFiles)
 
     % Process this file
     fprintf('  [%d/%d] Processing %s...\n', i, length(matFiles), shortName);
+    fullPath = fullfile(outputDir, fileName);
     data = load(fullPath);
 
     if isfield(data, 'speed') && isnumeric(data.speed) && isvector(data.speed)
-        medianSpeed = median(data.speed, 'omitnan');
+        spd = data.speed;
     elseif isfield(data, 'speed_px_per_frame') && isnumeric(data.speed_px_per_frame) && isvector(data.speed_px_per_frame)
-        medianSpeed = median(data.speed_px_per_frame, 'omitnan');
+        spd = data.speed_px_per_frame;
     else
         warning('File %s does not contain a valid ''speed'' variable.', fileName);
-        medianSpeed = NaN;
+        spd = NaN;
     end
+    medianSpeed = median(spd, 'omitnan');
+    meanSpeed   = mean(spd,   'omitnan');
 
-    newRow = table({shortName}, medianSpeed, ...
-        'VariableNames', {'FilePrefix', 'MedianSpeed pixels/frame'});
+    newRow = table({shortName}, medianSpeed, meanSpeed, ...
+        'VariableNames', {'FilePrefix', 'MedianSpeed pixels/frame', 'MeanSpeed pixels/frame'});
 
     if isempty(existingTable)
         existingTable = newRow;
@@ -89,7 +98,8 @@ if any(isnan(T.PixelsPerCm))
         strjoin(T.FilePrefix(isnan(T.PixelsPerCm)), ', '));
 end
 
-T.("Speed cm/s") = T.("MedianSpeedPixels_frame") .* 30 ./ T.PixelsPerCm;
+T.("Median Speed cm/s") = T.("MedianSpeed pixels/frame") .* 30 ./ T.PixelsPerCm;
+T.("Mean Speed cm/s")   = T.("MeanSpeed pixels/frame")   .* 30 ./ T.PixelsPerCm;
 % ---------------------------------------------------------
 
 fprintf('\n=== Processing Summary ===\n');
