@@ -47,6 +47,22 @@ step1 → step2 → step3 → step4 → step5
 
 ---
 
+## step3b — QC Outlier Detection & Cleaning
+
+**File:** `step3b_qc_outliers.m`
+**Purpose:** Flag and remove physiologically impossible speed values (tracking jumps) from each `centroid.mat` before statistics are computed.
+
+| | What | Where |
+|---|---|---|
+| **Input** | `*_centroid.mat` files | `stats_and_analysis/grid/` |
+| **Input** | `pixels_per_cm_output.xlsx` | `stats_and_analysis/grid/` |
+| **Output** | Cleaned `*_centroid.mat` files (outlier frames → NaN) | `stats_and_analysis/grid/` (overwritten in place) |
+| **Output** | `qc_outlier_report.xlsx` — per-file outlier counts and max speed | `stats_and_analysis/grid/` |
+
+> **Cap:** default 150 cm/s. Adjust `maxSpeed_cm_s` at the top of the script if needed.
+
+---
+
 ## step4 — Speed Summary Table
 
 **File:** `step4_speed_table.m`  
@@ -84,6 +100,7 @@ step1 → step2 → step3 → step4 → step5
         ├── roi.xlsx                    ← step2
         ├── <name>_with_tracking.mp4   ← step3
         ├── <name>_centroid.mat        ← step3
+        ├── qc_outlier_report.xlsx      ← step3b
         ├── grid_speed_stat_check.xlsx  ← step4
         └── clips/
             └── <name>/

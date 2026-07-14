@@ -63,6 +63,26 @@ else
     run('step3_speed_calculator_gridclips_generator');
 end
 
+%% Step 3b — QC outlier detection & cleaning
+reportFile = fullfile(outputDir, 'qc_outlier_report.xlsx');
+matFiles   = dir(fullfile(outputDir, '*centroid.mat'));
+
+if exist(reportFile, 'file')
+    qcTable = readtable(reportFile);
+    coveredPrefixes = string(qcTable.FilePrefix);
+    allPrefixes = string(arrayfun(@(f) f.name(1:min(7,end)), matFiles, 'UniformOutput', false));
+    missing = allPrefixes(~ismember(allPrefixes, coveredPrefixes));
+    if isempty(missing)
+        fprintf('[Step 3b] Skipping — all %d files already QC checked.\n', numel(allPrefixes));
+    else
+        fprintf('[Step 3b] Running QC — %d file(s) not yet checked.\n', numel(missing));
+        run('step3b_qc_outliers');
+    end
+else
+    fprintf('[Step 3b] Running QC on all centroid files...\n');
+    run('step3b_qc_outliers');
+end
+
 %% Step 4 — Speed summary table
 statFile = fullfile(outputDir, 'grid_speed_stat_check.xlsx');
 matFiles = dir(fullfile(outputDir, '*centroid.mat'));
