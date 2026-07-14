@@ -2,9 +2,9 @@
 % Otherwise a prompt window will appear.
 
 %% Settings — adjust these as needed
-diffThreshold    = 20;    % threshold on background-subtracted difference image
-minBlobArea      = 700;   % minimum blob area in pixels (remove noise)
-nBgFrames        = 100;   % number of frames used to estimate background
+diffThreshold     = 20;    % starting threshold on background-subtracted difference image
+minBlobArea       = 700;   % minimum blob area in pixels (remove noise)
+nBgFrames         = 100;   % number of frames used to estimate background
 saveTrackingVideo = false; % set true to write annotated _with_tracking.mp4 (slow)
 
 %% Variable checks
@@ -45,25 +45,38 @@ end
 clipBaseFolder = fullfile(project_folder, 'stats_and_analysis/grid/clips');
 if ~exist(clipBaseFolder, 'dir'), mkdir(clipBaseFolder); end
 
-%% Process each video
-for vi = 1:length(videoFiles)
+%% Identify videos that still need processing
+toProcess = [];
+for vi = 1:numel(videoFiles)
+    [~, baseName] = fileparts(videoFiles(vi).name);
+    matPath = fullfile(outputFolder, [baseName '_centroid.mat']);
+    if ~exist(matPath, 'file')
+        toProcess(end+1) = vi;
+    else
+        fprintf('  Skipping %s (centroid.mat already exists)\n', videoFiles(vi).name);
+    end
+end
+
+if isempty(toProcess)
+    disp('All videos already processed. Nothing to do.');
+    return;
+end
+
+fprintf('\n%d video(s) to process.\n', numel(toProcess));
+
+%% Pre-compute backgrounds and sample frames for all unprocessed videos
+fprintf('Computing backgrounds...\n');
+backgrounds  = cell(numel(toProcess), 1);
+previewDiffs = cell(numel(toProcess), 1);
+frameRates   = zeros(numel(toProcess), 1);
+
+for ti = 1:numel(toProcess)
+    vi        = toProcess(ti);
     roi       = videoFiles(vi).roiXYWH;
     videoPath = fullfile(videoFiles(vi).folder, videoFiles(vi).name);
-    [~, baseName, ~] = fileparts(videoFiles(vi).name);
-    matPath   = fullfile(outputFolder, [baseName '_centroid.mat']);
 
-    % Skip if already done
-    if exist(matPath, 'file')
-        fprintf('  Skipping %s (centroid.mat already exists)\n', videoFiles(vi).name);
-        continue;
-    end
-
-    fprintf('\nProcessing: %s\n', videoFiles(vi).name);
-
-    %% --- Compute background from first nBgFrames frames ---
-    fprintf('  Computing background (%d frames)...\n', nBgFrames);
     bgVid = VideoReader(videoPath);
-    frameRate = bgVid.FrameRate;
+    frameRates(ti) = bgVid.FrameRate;
     bgStack = [];
     k = 0;
     while hasFrame(bgVid) && k < nBgFrames
@@ -71,43 +84,66 @@ for vi = 1:length(videoFiles)
         bgStack(:,:,k+1) = imcrop(rgb2gray(f), roi);
         k = k + 1;
     end
-    background = uint8(median(double(bgStack), 3));
+    backgrounds{ti} = uint8(median(double(bgStack), 3));
 
-    %% --- Per-video threshold preview ---
-    % Show mid-video frame so user can verify/adjust diffThreshold
+    % Sample frame from middle of video
     previewVid = VideoReader(videoPath);
     previewVid.CurrentTime = previewVid.Duration / 2;
     previewFrame = readFrame(previewVid);
-    previewRoi   = imcrop(rgb2gray(previewFrame), roi);
-    previewDiff  = imabsdiff(previewRoi, background);
+    previewDiffs{ti} = imabsdiff(imcrop(rgb2gray(previewFrame), roi), backgrounds{ti});
 
-    currentThresh = diffThreshold;
-    while true
-        binaryPreview = previewDiff > currentThresh;
+    fprintf('  [%d/%d] %s\n', ti, numel(toProcess), videoFiles(vi).name);
+end
+
+%% Global threshold selection — one montage, one threshold for all videos
+fprintf('\nShowing preview montage. Adjust threshold until detection looks good for all videos.\n');
+nCols = min(3, numel(toProcess));
+nRows = ceil(numel(toProcess) / nCols);
+
+while true
+    figure(1); clf;
+    for ti = 1:numel(toProcess)
+        binaryPreview = previewDiffs{ti} > diffThreshold;
         binaryPreview = bwareaopen(binaryPreview, minBlobArea);
 
-        figure(1); clf;
-        subplot(1,2,1); imshow(previewRoi);  title('ROI grayscale');
-        subplot(1,2,2); imshow(binaryPreview); title(sprintf('Binary mask (threshold = %d)', currentThresh));
-        sgtitle(videoFiles(vi).name, 'Interpreter', 'none');
-        drawnow;
+        subplot(nRows, nCols*2, (ti-1)*2 + 1);
+        imshow(previewDiffs{ti}, []);
+        title(videoFiles(toProcess(ti)).name, 'Interpreter', 'none', 'FontSize', 7);
 
-        answer = input(sprintf('  Threshold = %d. Press Enter to accept, or type a new value: ', currentThresh), 's');
-        if isempty(answer)
-            break;
-        end
-        val = str2double(answer);
-        if ~isnan(val) && val > 0
-            currentThresh = val;
-        else
-            fprintf('  Invalid input — keeping threshold = %d\n', currentThresh);
-            break;
-        end
+        subplot(nRows, nCols*2, (ti-1)*2 + 2);
+        imshow(binaryPreview);
+        title(sprintf('mask (thr=%d)', diffThreshold), 'FontSize', 7);
     end
-    close(1);
-    fprintf('  Using threshold = %d\n', currentThresh);
+    sgtitle(sprintf('Threshold = %d  |  Enter new value or press Enter to proceed', diffThreshold));
+    drawnow;
 
-    %% --- Main tracking loop ---
+    answer = input(sprintf('Threshold = %d. Press Enter to accept, or type a new value: ', diffThreshold), 's');
+    if isempty(answer)
+        break;
+    end
+    val = str2double(answer);
+    if ~isnan(val) && val > 0
+        diffThreshold = val;
+    else
+        fprintf('Invalid input — keeping threshold = %d\n', diffThreshold);
+        break;
+    end
+end
+close(1);
+fprintf('Proceeding with threshold = %d\n\n', diffThreshold);
+
+%% Process each video uninterrupted
+for ti = 1:numel(toProcess)
+    vi        = toProcess(ti);
+    roi       = videoFiles(vi).roiXYWH;
+    videoPath = fullfile(videoFiles(vi).folder, videoFiles(vi).name);
+    [~, baseName] = fileparts(videoFiles(vi).name);
+    matPath   = fullfile(outputFolder, [baseName '_centroid.mat']);
+    frameRate = frameRates(ti);
+    background = backgrounds{ti};
+
+    fprintf('[%d/%d] Processing: %s\n', ti, numel(toProcess), videoFiles(vi).name);
+
     video = VideoReader(videoPath);
     centroidData.x = [];
     centroidData.y = [];
@@ -123,9 +159,9 @@ for vi = 1:length(videoFiles)
         frame = readFrame(video);
         frameNumber = frameNumber + 1;
 
-        roiFrame   = imcrop(rgb2gray(frame), roi);
-        diffFrame  = imabsdiff(roiFrame, background);
-        binaryFrame = diffFrame > currentThresh;
+        roiFrame    = imcrop(rgb2gray(frame), roi);
+        diffFrame   = imabsdiff(roiFrame, background);
+        binaryFrame = diffFrame > diffThreshold;
         binaryFrame = bwareaopen(binaryFrame, minBlobArea);
 
         stats = regionprops(binaryFrame, 'Area', 'Centroid');
@@ -137,7 +173,7 @@ for vi = 1:length(videoFiles)
         end
 
         centroids = vertcat(stats.Centroid);
-        [~, idx]  = max(centroids(:, 2));  % lowest position in frame = on the grid, not reflection
+        [~, idx]  = max(centroids(:, 2));  % lowest blob = mouse on grid, not reflection
         centroid  = stats(idx).Centroid + [roi(1), roi(2)];
         centroidData.x(end+1,1) = centroid(1);
         centroidData.y(end+1,1) = centroid(2);
@@ -150,9 +186,10 @@ for vi = 1:length(videoFiles)
     end
 
     if saveTrackingVideo, close(outputVideo); end
-    fprintf('  Tracking done: %d frames, %d NaN\n', frameNumber, sum(isnan(centroidData.x)));
+    fprintf('  Done: %d frames, %d NaN (%.1f%%)\n', frameNumber, ...
+        sum(isnan(centroidData.x)), sum(isnan(centroidData.x))/frameNumber*100);
 
-    %% --- Speed & clip selection ---
+    %% Speed & clip selection
     speed = sqrt(diff(centroidData.x).^2 + diff(centroidData.y).^2);
 
     speedThreshold  = 3;
@@ -161,8 +198,8 @@ for vi = 1:length(videoFiles)
     highSpeedFrames = find(speed > speedThreshold);
     highSpeedFrames = highSpeedFrames(highSpeedFrames >= startFrameLimit & highSpeedFrames <= endFrameLimit);
 
-    numClips   = 50;
-    clipLength = round(frameRate / 2);
+    numClips      = 50;
+    clipLength    = round(frameRate / 2);
     selectedClips = [];
     shuffledFrames = highSpeedFrames(randperm(length(highSpeedFrames)));
 
@@ -183,7 +220,6 @@ for vi = 1:length(videoFiles)
         end
     end
 
-    %% --- Save clips ---
     subfolder = fullfile(clipBaseFolder, baseName);
     if ~exist(subfolder, 'dir'), mkdir(subfolder); end
     clipVid = VideoReader(videoPath);
@@ -193,15 +229,13 @@ for vi = 1:length(videoFiles)
         open(clipWriter);
         clipVid.CurrentTime = (selectedClips(ci,1) - 1) / frameRate;
         for fi = selectedClips(ci,1):selectedClips(ci,2)
-            if hasFrame(clipVid)
-                writeVideo(clipWriter, readFrame(clipVid));
-            end
+            if hasFrame(clipVid), writeVideo(clipWriter, readFrame(clipVid)); end
         end
         close(clipWriter);
     end
-    fprintf('  Saved %d clip(s).\n', size(selectedClips,1));
+    fprintf('  Saved %d clip(s) -> %s\n', size(selectedClips,1), matPath);
 
-    %% --- Save centroid & speed ---
     save(matPath, 'centroidData', 'speed');
-    fprintf('  Saved: %s\n', matPath);
 end
+
+fprintf('\nAll done.\n');
