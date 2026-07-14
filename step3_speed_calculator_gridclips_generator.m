@@ -149,6 +149,7 @@ for ti = 1:numel(toProcess)
     centroidData.x = [];
     centroidData.y = [];
     frameNumber = 0;
+    lastCentroid = [];  % for temporal continuity tracking
 
     if saveTrackingVideo
         outputVideo = VideoWriter(fullfile(outputFolder, [baseName '_with_tracking.mp4']), 'MPEG-4');
@@ -169,13 +170,25 @@ for ti = 1:numel(toProcess)
         if isempty(stats)
             centroidData.x(end+1,1) = NaN;
             centroidData.y(end+1,1) = NaN;
+            lastCentroid = [];  % reset so next detection re-initialises from lowest blob
             if saveTrackingVideo, writeVideo(outputVideo, frame); end
             continue;
         end
 
         centroids = vertcat(stats.Centroid);
-        [~, idx]  = max(centroids(:, 2));  % lowest blob = mouse on grid, not reflection
-        centroid  = stats(idx).Centroid + [roi(1), roi(2)];
+
+        if isempty(lastCentroid)
+            % First detection: pick lowest blob (most likely on the grid)
+            [~, idx] = max(centroids(:, 2));
+        else
+            % Subsequent frames: pick blob closest to last known position
+            dists = sum((centroids - lastCentroid).^2, 2);
+            [~, idx] = min(dists);
+        end
+
+        centroid = stats(idx).Centroid;
+        lastCentroid = centroid;  % update for next frame
+        centroid = centroid + [roi(1), roi(2)];
         centroidData.x(end+1,1) = centroid(1);
         centroidData.y(end+1,1) = centroid(2);
 
