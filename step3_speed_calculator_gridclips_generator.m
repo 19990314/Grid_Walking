@@ -106,14 +106,14 @@ end
 fprintf('\n%d video(s) to process.\n', numel(toProcess));
 
 %% Pre-compute backgrounds and sample frames for all unprocessed videos
-% Background, threshold, and initial click are cached in <baseName>_bg.mat.
-% Delete that file to force recomputation for a specific video.
+% Background, threshold, and initial click are cached inside _centroid.mat.
+% Delete the _centroid.mat to force full recomputation for a specific video.
 fprintf('Computing backgrounds...\n');
 backgrounds   = cell(numel(toProcess), 1);
 previewDiffs  = cell(numel(toProcess), 1);
 previewFrames = cell(numel(toProcess), 1);
 frameRates    = zeros(numel(toProcess), 1);
-cachedSetup   = false(numel(toProcess), 1);  % true = threshold+click loaded from cache
+cachedSetup   = false(numel(toProcess), 1);
 cachedThresh  = zeros(numel(toProcess), 1);
 cachedClicks  = zeros(numel(toProcess), 2);
 
@@ -122,32 +122,19 @@ for ti = 1:numel(toProcess)
     roi       = videoFiles(vi).roiXYWH;
     videoPath = fullfile(videoFiles(vi).folder, videoFiles(vi).name);
     [~, baseName] = fileparts(videoFiles(vi).name);
-    bgCacheFile = fullfile(outputFolder, [baseName '_bg.mat']);
+    matPath = fullfile(outputFolder, [baseName '_centroid.mat']);
 
-    % Load full cache if available (background + threshold + initClick)
-    if exist(bgCacheFile, 'file')
-        bgData = load(bgCacheFile);
-        if isfield(bgData, 'background') && isfield(bgData, 'threshold') && isfield(bgData, 'initClick')
-            backgrounds{ti}  = bgData.background;
-            cachedThresh(ti) = bgData.threshold;
-            cachedClicks(ti,:) = bgData.initClick;
-            cachedSetup(ti)  = true;
-            frameRates(ti)   = VideoReader(videoPath).FrameRate;
-            fprintf('  [%d/%d] %s (loaded from cache, threshold=%d)\n', ...
-                ti, numel(toProcess), videoFiles(vi).name, bgData.threshold);
-            continue;
-        elseif isfield(bgData, 'background')
-            % Partial cache: background exists but setup not yet saved
-            backgrounds{ti} = bgData.background;
-            frameRates(ti)  = VideoReader(videoPath).FrameRate;
-            fprintf('  [%d/%d] %s (background from cache, setup needed)\n', ...
-                ti, numel(toProcess), videoFiles(vi).name);
-            % Still need preview for setup
-            previewVid = VideoReader(videoPath);
-            previewVid.CurrentTime = previewVid.Duration / 2;
-            previewGray = imcrop(rgb2gray(readFrame(previewVid)), roi);
-            previewFrames{ti} = previewGray;
-            previewDiffs{ti}  = imabsdiff(previewGray, backgrounds{ti});
+    % Load cache from centroid.mat if it already exists with bg data
+    if exist(matPath, 'file')
+        cached = load(matPath);
+        if isfield(cached, 'background') && isfield(cached, 'threshold') && isfield(cached, 'initClick')
+            backgrounds{ti}    = cached.background;
+            cachedThresh(ti)   = cached.threshold;
+            cachedClicks(ti,:) = cached.initClick;
+            cachedSetup(ti)    = true;
+            frameRates(ti)     = VideoReader(videoPath).FrameRate;
+            fprintf('  [%d/%d] %s (loaded from centroid.mat cache, threshold=%d)\n', ...
+                ti, numel(toProcess), videoFiles(vi).name, cached.threshold);
             continue;
         end
     end
@@ -176,27 +163,21 @@ for ti = 1:numel(toProcess)
     previewFrames{ti} = previewGray;
     previewDiffs{ti}  = imabsdiff(previewGray, backgrounds{ti});
 
-    % Save background to cache now; threshold+click appended after setup
-    background = backgrounds{ti}; %#ok<NASGU>
-    save(bgCacheFile, 'background');
-    fprintf('  [%d/%d] %s (computed and cached)\n', ti, numel(toProcess), videoFiles(vi).name);
+    fprintf('  [%d/%d] %s (computed)\n', ti, numel(toProcess), videoFiles(vi).name);
 end
 
 %% Per-video setup — threshold + click to mark mouse — all upfront
 % Fully cached videos are skipped automatically.
-needSetup = find(~cachedSetup);
-if isempty(needSetup)
+if all(cachedSetup)
     fprintf('\nSetup phase: all videos loaded from cache — no input needed.\n');
 else
-    fprintf('\nSetup phase: %d video(s) need threshold and click.\n\n', numel(needSetup));
+    fprintf('\nSetup phase: %d video(s) need threshold and click.\n\n', sum(~cachedSetup));
 end
 
 thresholds = zeros(numel(toProcess), 1);
 initClicks = zeros(numel(toProcess), 2);
 
 for ti = 1:numel(toProcess)
-    [~, baseName] = fileparts(videoFiles(toProcess(ti)).name);
-    bgCacheFile = fullfile(outputFolder, [baseName '_bg.mat']);
 
     if cachedSetup(ti)
         thresholds(ti)   = cachedThresh(ti);
@@ -252,11 +233,17 @@ for ti = 1:numel(toProcess)
     initClicks(ti, :) = [cx, cy];
     fprintf('  Marked mouse at (%.0f, %.0f)\n\n', cx, cy);
 
-    % Save complete cache for this video
-    background = backgrounds{ti}; %#ok<NASGU>
-    threshold  = currentThresh;   %#ok<NASGU>
-    initClick  = [cx, cy];        %#ok<NASGU>
-    save(bgCacheFile, 'background', 'threshold', 'initClick');
+    % Save background/threshold/click into centroid.mat so they survive reruns
+    [~, baseName_s] = fileparts(videoFiles(toProcess(ti)).name);
+    matPath_s   = fullfile(outputFolder, [baseName_s '_centroid.mat']);
+    background  = backgrounds{ti}; %#ok<NASGU>
+    threshold   = currentThresh;   %#ok<NASGU>
+    initClick   = [cx, cy];        %#ok<NASGU>
+    if exist(matPath_s, 'file')
+        save(matPath_s, 'background', 'threshold', 'initClick', '-append');
+    else
+        save(matPath_s, 'background', 'threshold', 'initClick');
+    end
 end
 if any(~cachedSetup), close(1); end
 fprintf('Setup complete. Starting processing...\n\n');
@@ -393,7 +380,18 @@ for ti = 1:numel(toProcess)
     % Delete existing assembled clips so they are rebuilt from the new mat
     assembledPath = fullfile(clipBaseFolder, [baseName '_clips.mp4']);
     if exist(assembledPath, 'file'), delete(assembledPath); end
-    save(matPath, 'centroidData', 'speed', 'roi');
+    % Preserve cached bg/threshold/initClick if already saved in this mat
+    if exist(matPath, 'file')
+        prev = load(matPath);
+        if isfield(prev, 'background') && isfield(prev, 'threshold') && isfield(prev, 'initClick')
+            background = prev.background; threshold = prev.threshold; initClick = prev.initClick; %#ok<NASGU>
+            save(matPath, 'centroidData', 'speed', 'roi', 'background', 'threshold', 'initClick');
+        else
+            save(matPath, 'centroidData', 'speed', 'roi');
+        end
+    else
+        save(matPath, 'centroidData', 'speed', 'roi');
+    end
 
     % If this video already has an entry in the speed table, it is a re-track.
     % Add / overwrite a "_second" row with the updated speed values.
