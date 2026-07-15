@@ -21,16 +21,32 @@ if exist(outputFile, 'file')
     if ~ismember('MeanSpeed pixels/frame', raw.Properties.VariableNames)
         raw.("MeanSpeed pixels/frame") = nan(height(raw), 1);
     end
-    % Ensure Timestamp column exists; stamp any blank cells with current time
+    % Ensure Timestamp column exists; stamp any blank cells with current time.
+    % Excel auto-converts datetime strings to date serial numbers, so handle
+    % both numeric (serial) and string forms on read-back.
     nowStr = datestr(now, 'yyyy-mm-dd HH:MM:SS');
     if ~ismember('Timestamp', raw.Properties.VariableNames)
         raw.Timestamp = repmat({nowStr}, height(raw), 1);
     else
-        raw.Timestamp = cellstr(raw.Timestamp);
-        blank = cellfun(@(x) isempty(strtrim(x)), raw.Timestamp);
-        if any(blank)
-            raw.Timestamp(blank) = {nowStr};
-            fprintf('  Backfilled timestamp for %d row(s) that had none.\n', sum(blank));
+        col = raw.Timestamp;
+        if isnumeric(col)
+            % Excel stored as date serial — convert back to string
+            tsCell = cell(numel(col), 1);
+            for ri = 1:numel(col)
+                if isnan(col(ri)) || col(ri) == 0
+                    tsCell{ri} = nowStr;
+                else
+                    tsCell{ri} = datestr(col(ri), 'yyyy-mm-dd HH:MM:SS');
+                end
+            end
+            raw.Timestamp = tsCell;
+        else
+            raw.Timestamp = cellstr(col);
+            blank = cellfun(@(x) isempty(strtrim(x)), raw.Timestamp);
+            if any(blank)
+                raw.Timestamp(blank) = {nowStr};
+                fprintf('  Backfilled timestamp for %d row(s) that had none.\n', sum(blank));
+            end
         end
     end
     % Deduplicate columns in case of a prior double-write (e.g. two Timestamp cols)

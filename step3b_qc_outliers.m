@@ -38,7 +38,21 @@ if exist(reportFile, 'file')
     oldReport = readtable(reportFile, 'VariableNamingRule', 'preserve');
     oldReport.File = cellstr(string(oldReport.File));
     if ismember('Timestamp', oldReport.Properties.VariableNames)
-        oldReport.Timestamp = cellstr(string(oldReport.Timestamp));
+        col = oldReport.Timestamp;
+        if isnumeric(col)
+            % Excel stored datetime strings as date serial numbers
+            tsCell = cell(numel(col), 1);
+            for ri = 1:numel(col)
+                if isnan(col(ri)) || col(ri) == 0
+                    tsCell{ri} = '';
+                else
+                    tsCell{ri} = datestr(col(ri), 'yyyy-mm-dd HH:MM:SS');
+                end
+            end
+            oldReport.Timestamp = tsCell;
+        else
+            oldReport.Timestamp = cellstr(string(col));
+        end
     else
         oldReport.Timestamp = repmat({''}, height(oldReport), 1);
     end
