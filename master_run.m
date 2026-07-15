@@ -90,10 +90,15 @@ if exist(ppcFile, 'file') && exist(roiFile, 'file')
     end
 
     if ~isempty(badVideos)
-        fprintf('\n[Step 2b] Removing %d bad calibration entry/entries and re-running step1.\n', numel(badVideos));
-        ppcT(ismember(ppcT.VideoName, badVideos), :) = [];
+        fprintf('\n[Step 2b] Correcting %d calibration entry/entries using ROI_W / 61:\n', numel(badVideos));
+        for vi = 1:height(ppcT)
+            if ~ismember(ppcT.VideoName{vi}, badVideos), continue; end
+            roiIdx = find(strcmp(roiT.VideoName, ppcT.VideoName{vi}), 1);
+            newPpc = roiT.ROI_W(roiIdx) / 61;
+            fprintf('  %s: %.4f -> %.4f px/cm\n', ppcT.VideoName{vi}, ppcT.PixelsPerCm(vi), newPpc);
+            ppcT.PixelsPerCm(vi) = newPpc;
+        end
         writetable(ppcT, ppcFile);
-        run('step1_pixel_per_cm_calculator');
         ppcUpdated = true;
     else
         fprintf('[Step 2b] All calibrations look correct.\n');
