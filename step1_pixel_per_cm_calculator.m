@@ -17,7 +17,24 @@ pixelsPerCm = [];
 % Known real-world length
 realLength_cm = 61;
 
+% Load existing calibration so already-done videos are skipped
+outputDir = fullfile(project_folder, 'stats_and_analysis/grid_v2');
+if ~exist(outputDir, 'dir'), mkdir(outputDir); end
+existingFile = fullfile(outputDir, 'pixels_per_cm_output.xlsx');
+if exist(existingFile, 'file')
+    existingT = readtable(existingFile, 'VariableNamingRule', 'preserve');
+    videoNames  = cellstr(existingT.VideoName);
+    pixelsPerCm = existingT.PixelsPerCm';
+    fprintf('Loaded %d existing calibration entries.\n', numel(videoNames));
+end
+
 for i = 1:length(videoFiles)
+    % Skip if already calibrated
+    if ismember(videoFiles(i).name, videoNames)
+        fprintf('  Skipping %s (already calibrated)\n', videoFiles(i).name);
+        continue;
+    end
+
     % Load video
     videoPath = fullfile(videoFiles(i).folder, videoFiles(i).name);
     v = VideoReader(videoPath);
@@ -54,10 +71,5 @@ end
 % Save to Excel
 T = table(videoNames', pixelsPerCm', ...
     'VariableNames', {'VideoName', 'PixelsPerCm'});
-outputDir = fullfile(project_folder, 'stats_and_analysis/grid_v2');
-if ~exist(outputDir, 'dir')
-    mkdir(outputDir);
-end
-writetable(T, fullfile(outputDir, 'pixels_per_cm_output.xlsx'));
-
+writetable(T, existingFile);
 disp('Data saved to ./stats_and_analysis/grid_v2/pixels_per_cm_output.xlsx');

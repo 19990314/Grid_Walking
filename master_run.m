@@ -25,8 +25,32 @@ if ~exist(ppcFile, 'file')
     end
 end
 
+% Validate existing calibration: flag rows with 0, NaN, or outlier PixelsPerCm.
+% A valid entry: PixelsPerCm > 0 and within 3x / 1/3 of the cohort median.
+% Bad rows are removed so step1 re-asks only for those videos.
 if exist(ppcFile, 'file')
-    ppcTable = readtable(ppcFile);
+    ppcTable = readtable(ppcFile, 'VariableNamingRule', 'preserve');
+    vals = ppcTable.PixelsPerCm;
+    goodMask = vals > 0 & ~isnan(vals);
+    if any(goodMask)
+        cohortMedian = median(vals(goodMask));
+        goodMask = goodMask & (vals >= cohortMedian / 3) & (vals <= cohortMedian * 3);
+    end
+    badRows = find(~goodMask);
+    if ~isempty(badRows)
+        fprintf('[Step 1] Validation: %d bad calibration row(s) detected — will re-calibrate:\n', numel(badRows));
+        for bi = 1:numel(badRows)
+            fprintf('    %s  (PixelsPerCm = %.4f)\n', ppcTable.VideoName{badRows(bi)}, vals(badRows(bi)));
+        end
+        ppcTable(badRows, :) = [];
+        writetable(ppcTable, ppcFile);
+    else
+        fprintf('[Step 1] Validation: all calibration values look correct.\n');
+    end
+end
+
+if exist(ppcFile, 'file')
+    ppcTable = readtable(ppcFile, 'VariableNamingRule', 'preserve');
     coveredVideos = string(ppcTable.VideoName);
     allVideos = string({videoFiles.name}');
     missing = allVideos(~ismember(allVideos, coveredVideos));
