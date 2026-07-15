@@ -33,18 +33,21 @@ if isempty(matFiles)
 end
 
 % Summary table
-report = table('Size', [0 7], ...
-    'VariableTypes', {'string','double','double','double','double','double','string'}, ...
-    'VariableNames', {'File','TotalFrames','NaN_pct','Median_cm_s','Mean_cm_s','Max_cm_s','Flag'});
+report = table('Size', [0 8], ...
+    'VariableTypes', {'string','double','double','double','double','double','string','string'}, ...
+    'VariableNames', {'File','TotalFrames','NaN_pct','Median_cm_s','Mean_cm_s','Max_cm_s','Flag','LastTracked'});
 
-fprintf('\n%-12s  %6s  %7s  %10s  %9s  %8s  %s\n', ...
-    'File', 'Frames', 'NaN%', 'Median cm/s', 'Mean cm/s', 'Max cm/s', 'Flag');
-fprintf('%s\n', repmat('-',1,72));
+runTime = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+fprintf('\nQC Report — %s\n', runTime);
+fprintf('%-12s  %6s  %7s  %10s  %9s  %8s  %-16s  %s\n', ...
+    'File', 'Frames', 'NaN%', 'Median cm/s', 'Mean cm/s', 'Max cm/s', 'LastTracked', 'Flag');
+fprintf('%s\n', repmat('-',1,90));
 
 for i = 1:numel(matFiles)
-    fileName  = matFiles(i).name;
-    fullPath  = fullfile(outputDir, fileName);
-    shortName = fileName(1:min(7, numel(fileName)));
+    fileName     = matFiles(i).name;
+    fullPath     = fullfile(outputDir, fileName);
+    shortName    = fileName(1:min(7, numel(fileName)));
+    lastTracked  = datestr(matFiles(i).datenum, 'yyyy-mm-dd HH:MM');
 
     data  = load(fullPath);
     speed = data.speed(:);
@@ -61,10 +64,10 @@ for i = 1:numel(matFiles)
     end
 
     if ~isnan(ppc)
-        spd_cms   = speed * frameRate / ppc;
-        medSpd    = median(spd_cms, 'omitnan');
-        meanSpd   = mean(spd_cms,   'omitnan');
-        maxSpd    = max(spd_cms,    [], 'omitnan');
+        spd_cms = speed * frameRate / ppc;
+        medSpd  = median(spd_cms, 'omitnan');
+        meanSpd = mean(spd_cms,   'omitnan');
+        maxSpd  = max(spd_cms,    [], 'omitnan');
     else
         medSpd  = median(speed, 'omitnan');
         meanSpd = mean(speed,   'omitnan');
@@ -79,20 +82,20 @@ for i = 1:numel(matFiles)
     flagStr = strjoin(flags, ' | ');
     if isempty(flagStr), flagStr = 'OK'; end
 
-    fprintf('%-12s  %6d  %6.1f%%  %11.2f  %9.2f  %8.1f  %s\n', ...
-        shortName, nTotal, nanPct, medSpd, meanSpd, maxSpd, flagStr);
+    fprintf('%-12s  %6d  %6.1f%%  %11.2f  %9.2f  %8.1f  %-16s  %s\n', ...
+        shortName, nTotal, nanPct, medSpd, meanSpd, maxSpd, lastTracked, flagStr);
 
-    report(end+1,:) = {shortName, nTotal, nanPct, medSpd, meanSpd, maxSpd, flagStr};
+    report(end+1,:) = {shortName, nTotal, nanPct, medSpd, meanSpd, maxSpd, flagStr, lastTracked};
 end
 
-fprintf('%s\n', repmat('-',1,72));
+fprintf('%s\n', repmat('-',1,90));
 fprintf('\nFlags explained:\n');
 fprintf('  HIGH_NAN     — >30%% of frames had no detection\n');
 fprintf('  MEAN>>MEDIAN — mean speed >3x median (outlier spikes present)\n');
 fprintf('  SPIKE        — max speed >150 cm/s (physically impossible)\n');
 fprintf('\nTo reprocess a flagged file: delete its _centroid.mat and rerun step3.\n');
 
-% Save report
+% Save report (always overwritten — reflects current state of all mat files)
 reportFile = fullfile(outputDir, 'qc_speed_report.xlsx');
 writetable(report, reportFile);
 fprintf('\nReport saved to: %s\n', reportFile);
