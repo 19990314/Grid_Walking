@@ -27,6 +27,12 @@ if exist(outputFile, 'file')
     else
         raw.Timestamp = cellstr(raw.Timestamp);
     end
+    % Deduplicate columns in case of a prior double-write (e.g. two Timestamp cols)
+    [uniqueCols, colIdx] = unique(raw.Properties.VariableNames, 'stable');
+    if numel(uniqueCols) < numel(raw.Properties.VariableNames)
+        raw = raw(:, colIdx);
+        warning('Duplicate columns detected in existing file — deduplicated on load.');
+    end
     existingTable = raw(:, baseCols);
     fprintf('Found existing output with %d entries. Will skip already-processed files.\n', height(existingTable));
 else
@@ -76,7 +82,6 @@ for i = 1:length(matFiles)
         existingTable = [existingTable; newRow];
     end
 
-    writetable(existingTable, outputFile);
     nProcessed = nProcessed + 1;
     fprintf('  Saved entry for %s\n', shortName);
 end
