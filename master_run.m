@@ -15,6 +15,16 @@ outputDir = fullfile(project_folder, 'stats_and_analysis', 'grid_v2');
 ppcFile = fullfile(outputDir, 'pixels_per_cm_output.xlsx');
 videoFiles = dir(fullfile(project_folder, '**', '*grid.mp4'));
 
+% Reuse calibration from previous grid run if available
+if ~exist(ppcFile, 'file')
+    oldPpcFile = fullfile(project_folder, 'stats_and_analysis', 'grid', 'pixels_per_cm_output.xlsx');
+    if exist(oldPpcFile, 'file')
+        if ~exist(outputDir, 'dir'), mkdir(outputDir); end
+        copyfile(oldPpcFile, ppcFile);
+        fprintf('[Step 1] Copied pixels_per_cm from grid/ to grid_v2/.\n');
+    end
+end
+
 if exist(ppcFile, 'file')
     ppcTable = readtable(ppcFile);
     coveredVideos = string(ppcTable.VideoName);
