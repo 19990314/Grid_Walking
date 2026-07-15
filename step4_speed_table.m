@@ -21,11 +21,17 @@ if exist(outputFile, 'file')
     if ~ismember('MeanSpeed pixels/frame', raw.Properties.VariableNames)
         raw.("MeanSpeed pixels/frame") = nan(height(raw), 1);
     end
-    % Ensure Timestamp column exists (backfill blanks for older rows)
+    % Ensure Timestamp column exists; stamp any blank cells with current time
+    nowStr = datestr(now, 'yyyy-mm-dd HH:MM:SS');
     if ~ismember('Timestamp', raw.Properties.VariableNames)
-        raw.Timestamp = repmat({''}, height(raw), 1);
+        raw.Timestamp = repmat({nowStr}, height(raw), 1);
     else
         raw.Timestamp = cellstr(raw.Timestamp);
+        blank = cellfun(@(x) isempty(strtrim(x)), raw.Timestamp);
+        if any(blank)
+            raw.Timestamp(blank) = {nowStr};
+            fprintf('  Backfilled timestamp for %d row(s) that had none.\n', sum(blank));
+        end
     end
     % Deduplicate columns in case of a prior double-write (e.g. two Timestamp cols)
     [uniqueCols, colIdx] = unique(raw.Properties.VariableNames, 'stable');
