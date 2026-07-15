@@ -19,7 +19,7 @@ videoFiles = dir(fullfile(project_folder, '**', '*grid.mp4'));
 [videoFiles.roiArea_px2]  = deal([]);
 
 % Output file path
-outputDir = fullfile(project_folder, 'stats_and_analysis', 'grid');
+outputDir = fullfile(project_folder, 'stats_and_analysis', 'grid_v2');
 if ~exist(outputDir, 'dir')
     mkdir(outputDir);
 end

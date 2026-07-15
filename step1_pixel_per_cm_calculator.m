@@ -54,10 +54,10 @@ end
 % Save to Excel
 T = table(videoNames', pixelsPerCm', ...
     'VariableNames', {'VideoName', 'PixelsPerCm'});
-outputDir = fullfile(project_folder, 'stats_and_analysis/grid');
+outputDir = fullfile(project_folder, 'stats_and_analysis/grid_v2');
 if ~exist(outputDir, 'dir')
     mkdir(outputDir);
 end
 writetable(T, fullfile(outputDir, 'pixels_per_cm_output.xlsx'));
 
-disp('Data saved to ./stats_and_analysis/grid/pixels_per_cm_output.xlsx');
+disp('Data saved to ./stats_and_analysis/grid_v2/pixels_per_cm_output.xlsx');

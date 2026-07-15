@@ -4,7 +4,7 @@
 if ~exist('project_folder', 'var')
     project_folder = uigetdir([], 'Select Folder Containing mat files');
 end
-outputDir = fullfile(project_folder, 'stats_and_analysis', 'grid');
+outputDir = fullfile(project_folder, 'stats_and_analysis', 'grid_v2');
 matFiles = dir(fullfile(outputDir, '*centroid.mat'));
 
 % Define output file path

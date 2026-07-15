@@ -9,7 +9,7 @@ project_folder = uigetdir([], 'Select Project Folder');
 if isequal(project_folder, 0)
     error('No folder selected. Operation cancelled.');
 end
-outputDir = fullfile(project_folder, 'stats_and_analysis', 'grid');
+outputDir = fullfile(project_folder, 'stats_and_analysis', 'grid_v2');
 
 %% Step 1 — Pixel-per-cm calibration
 ppcFile = fullfile(outputDir, 'pixels_per_cm_output.xlsx');

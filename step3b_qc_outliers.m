@@ -11,7 +11,7 @@ if ~exist('project_folder', 'var')
     project_folder = uigetdir([], 'Select Project Folder');
     if isequal(project_folder, 0), error('No folder selected.'); end
 end
-outputDir = fullfile(project_folder, 'stats_and_analysis', 'grid');
+outputDir = fullfile(project_folder, 'stats_and_analysis', 'grid_v2');
 
 % Load pixels-per-cm for physical unit conversion
 ppcFile = fullfile(outputDir, 'pixels_per_cm_output.xlsx');

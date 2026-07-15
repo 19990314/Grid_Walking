@@ -12,7 +12,7 @@ if ~exist('project_folder', 'var')
     project_folder = uigetdir([], 'Select Folder Containing Videos');
 end
 if ~exist('outputFolder', 'var')
-    outputFolder = fullfile(project_folder, 'stats_and_analysis/grid');
+    outputFolder = fullfile(project_folder, 'stats_and_analysis/grid_v2');
     if ~exist(outputFolder, 'dir'), mkdir(outputFolder); end
 end
 if ~exist('videoFiles', 'var')
@@ -42,7 +42,7 @@ if addroi_flag
     end
 end
 
-clipBaseFolder = fullfile(project_folder, 'stats_and_analysis/grid/clips');
+clipBaseFolder = fullfile(project_folder, 'stats_and_analysis/grid_v2/clips');
 if ~exist(clipBaseFolder, 'dir'), mkdir(clipBaseFolder); end
 
 %% Identify what each video needs
