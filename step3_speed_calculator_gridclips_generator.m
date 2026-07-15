@@ -419,12 +419,27 @@ for ti = 1:numel(toProcess)
 
             id  = shortName(1:min(4, length(shortName)));
             day = shortName(end);
-            ts = datestr(now, 'yyyy-mm-dd HH:MM:SS');
-            % Build new row matching all columns; Timestamp filled now
+            ts  = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+
+            % Ensure Timestamp column exists (backfill if table predates it)
+            if ~ismember('Timestamp', statT.Properties.VariableNames)
+                statT.Timestamp = repmat({''}, height(statT), 1);
+            end
+
+            % Build new row with explicit column names
+            knownCols = {'FilePrefix', 'MedianSpeed pixels/frame', 'MeanSpeed pixels/frame', ...
+                         'Timestamp', 'ID', 'Day', 'PixelsPerCm', ...
+                         'Median Speed cm/s', 'Mean Speed cm/s'};
             newRow = table({secondPrefix}, medSpd, meanSpd, {ts}, {id}, {day}, ppc, ...
                 medSpd * 30 / ppc, meanSpd * 30 / ppc, ...
-                'VariableNames', statT.Properties.VariableNames);
-            statT(end+1, :) = newRow;
+                'VariableNames', knownCols);
+            % Add any extra columns present in statT but not in knownCols (forward compat)
+            for col = statT.Properties.VariableNames
+                if ~ismember(col{1}, newRow.Properties.VariableNames)
+                    newRow.(col{1}) = statT.(col{1})(1) * NaN;
+                end
+            end
+            statT(end+1, :) = newRow(:, statT.Properties.VariableNames);
             writetable(statT, statFile);
             fprintf('  Speed table updated: added row %s\n', secondPrefix);
         end
