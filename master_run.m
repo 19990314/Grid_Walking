@@ -11,34 +11,22 @@ if isequal(project_folder, 0)
 end
 outputDir = fullfile(project_folder, 'stats_and_analysis', 'grid_v2');
 
-%% Step 1 — Pixel-per-cm calibration
-ppcFile = fullfile(outputDir, 'pixels_per_cm_output.xlsx');
+%% Step 1 — Pixel-per-cm calibration (copy only; derived from ROI if missing/wrong)
+ppcFile    = fullfile(outputDir, 'pixels_per_cm_output.xlsx');
 videoFiles = dir(fullfile(project_folder, '**', '*grid.mp4'));
 
-% Reuse calibration from previous grid run if available
+% Try to reuse calibration from a previous grid run
 if ~exist(ppcFile, 'file')
     oldPpcFile = fullfile(project_folder, 'stats_and_analysis', 'grid', 'pixels_per_cm_output.xlsx');
     if exist(oldPpcFile, 'file')
         if ~exist(outputDir, 'dir'), mkdir(outputDir); end
         copyfile(oldPpcFile, ppcFile);
         fprintf('[Step 1] Copied pixels_per_cm from grid/ to grid_v2/.\n');
-    end
-end
-
-if exist(ppcFile, 'file')
-    ppcTable = readtable(ppcFile);
-    coveredVideos = string(ppcTable.VideoName);
-    allVideos = string({videoFiles.name}');
-    missing = allVideos(~ismember(allVideos, coveredVideos));
-    if isempty(missing)
-        fprintf('[Step 1] Skipping — all %d videos already calibrated.\n', numel(allVideos));
     else
-        fprintf('[Step 1] Running — %d video(s) missing calibration.\n', numel(missing));
-        run('step1_pixel_per_cm_calculator');
+        fprintf('[Step 1] No existing calibration found — will derive from ROI after step 2.\n');
     end
 else
-    fprintf('[Step 1] Running — no calibration file found.\n');
-    run('step1_pixel_per_cm_calculator');
+    fprintf('[Step 1] Calibration file already present.\n');
 end
 
 %% Step 2 — ROI selection
@@ -60,48 +48,56 @@ else
     run('step2_select_roi');
 end
 
-%% Step 2b — Validate calibration against ROI width (should be ~61 cm)
-% For each video, ROI_W / PixelsPerCm should equal ~61 cm.
-% If an entry is off by more than 20%, the calibration is likely wrong.
-% Bad entries are removed from pixels_per_cm_output.xlsx and step1 reruns
-% for those videos only; step4 is also cleared so cm/s values are rebuilt.
+%% Step 2b — Ensure every video has a valid PixelsPerCm derived from ROI_W / 61
+% For videos missing from the calibration file, or where ROI_W / PixelsPerCm
+% deviates more than 20% from 61 cm, recompute PixelsPerCm = ROI_W / 61.
 ppcUpdated = false;
-if exist(ppcFile, 'file') && exist(roiFile, 'file')
-    ppcT  = readtable(ppcFile,  'VariableNamingRule', 'preserve');
-    roiT  = readtable(roiFile,  'VariableNamingRule', 'preserve');
-    tolerance = 0.20;   % allow ±20% of 61 cm
-    badVideos = {};
+if exist(roiFile, 'file')
+    roiT = readtable(roiFile, 'VariableNamingRule', 'preserve');
 
-    fprintf('\n[Step 2b] Checking ROI width vs. calibration (expected ~61 cm):\n');
-    for vi = 1:height(ppcT)
-        vidName = ppcT.VideoName{vi};
-        ppc     = ppcT.PixelsPerCm(vi);
-        roiIdx  = find(strcmp(roiT.VideoName, vidName), 1);
-        if isempty(roiIdx), continue; end
-        roiW_cm = roiT.ROI_W(roiIdx) / ppc;
-        deviation = abs(roiW_cm - 61) / 61;
-        if deviation > tolerance
-            fprintf('  [BAD]  %s — ROI width = %.1f cm (expected 61, off by %.0f%%)\n', ...
-                vidName, roiW_cm, deviation * 100);
-            badVideos{end+1} = vidName;
+    % Load or create calibration table
+    if exist(ppcFile, 'file')
+        ppcT = readtable(ppcFile, 'VariableNamingRule', 'preserve');
+    else
+        if ~exist(outputDir, 'dir'), mkdir(outputDir); end
+        ppcT = table({}, zeros(0,1), 'VariableNames', {'VideoName', 'PixelsPerCm'});
+    end
+
+    tolerance = 0.20;
+    fprintf('\n[Step 2b] Validating PixelsPerCm against ROI width (expected ~61 cm):\n');
+
+    for ri = 1:height(roiT)
+        vidName = roiT.VideoName{ri};
+        roiW    = roiT.ROI_W(ri);
+        ppcIdx  = find(strcmp(ppcT.VideoName, vidName), 1);
+
+        if isempty(ppcIdx)
+            % Missing entry — derive from ROI
+            newPpc = roiW / 61;
+            ppcT(end+1, :) = {vidName, newPpc};
+            fprintf('  [NEW]  %s — no entry, set %.4f px/cm from ROI\n', vidName, newPpc);
+            ppcUpdated = true;
         else
-            fprintf('  [OK]   %s — ROI width = %.1f cm\n', vidName, roiW_cm);
+            ppc      = ppcT.PixelsPerCm(ppcIdx);
+            roiW_cm  = roiW / ppc;
+            deviation = abs(roiW_cm - 61) / 61;
+            if deviation > tolerance
+                newPpc = roiW / 61;
+                fprintf('  [FIX]  %s — %.1f cm (off %.0f%%), corrected: %.4f -> %.4f px/cm\n', ...
+                    vidName, roiW_cm, deviation*100, ppc, newPpc);
+                ppcT.PixelsPerCm(ppcIdx) = newPpc;
+                ppcUpdated = true;
+            else
+                fprintf('  [OK]   %s — %.1f cm\n', vidName, roiW_cm);
+            end
         end
     end
 
-    if ~isempty(badVideos)
-        fprintf('\n[Step 2b] Correcting %d calibration entry/entries using ROI_W / 61:\n', numel(badVideos));
-        for vi = 1:height(ppcT)
-            if ~ismember(ppcT.VideoName{vi}, badVideos), continue; end
-            roiIdx = find(strcmp(roiT.VideoName, ppcT.VideoName{vi}), 1);
-            newPpc = roiT.ROI_W(roiIdx) / 61;
-            fprintf('  %s: %.4f -> %.4f px/cm\n', ppcT.VideoName{vi}, ppcT.PixelsPerCm(vi), newPpc);
-            ppcT.PixelsPerCm(vi) = newPpc;
-        end
-        writetable(ppcT, ppcFile);
-        ppcUpdated = true;
+    writetable(ppcT, ppcFile);
+    if ppcUpdated
+        fprintf('[Step 2b] Calibration updated and saved.\n');
     else
-        fprintf('[Step 2b] All calibrations look correct.\n');
+        fprintf('[Step 2b] All calibrations look correct — no changes.\n');
     end
 end
 
