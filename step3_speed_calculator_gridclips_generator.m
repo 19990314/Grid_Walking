@@ -106,17 +106,53 @@ end
 fprintf('\n%d video(s) to process.\n', numel(toProcess));
 
 %% Pre-compute backgrounds and sample frames for all unprocessed videos
+% Background, threshold, and initial click are cached in <baseName>_bg.mat.
+% Delete that file to force recomputation for a specific video.
 fprintf('Computing backgrounds...\n');
 backgrounds   = cell(numel(toProcess), 1);
 previewDiffs  = cell(numel(toProcess), 1);
-previewFrames = cell(numel(toProcess), 1);  % raw grayscale ROI frame for display & clicking
+previewFrames = cell(numel(toProcess), 1);
 frameRates    = zeros(numel(toProcess), 1);
+cachedSetup   = false(numel(toProcess), 1);  % true = threshold+click loaded from cache
+cachedThresh  = zeros(numel(toProcess), 1);
+cachedClicks  = zeros(numel(toProcess), 2);
 
 for ti = 1:numel(toProcess)
     vi        = toProcess(ti);
     roi       = videoFiles(vi).roiXYWH;
     videoPath = fullfile(videoFiles(vi).folder, videoFiles(vi).name);
+    [~, baseName] = fileparts(videoFiles(vi).name);
+    bgCacheFile = fullfile(outputFolder, [baseName '_bg.mat']);
 
+    % Load full cache if available (background + threshold + initClick)
+    if exist(bgCacheFile, 'file')
+        bgData = load(bgCacheFile);
+        if isfield(bgData, 'background') && isfield(bgData, 'threshold') && isfield(bgData, 'initClick')
+            backgrounds{ti}  = bgData.background;
+            cachedThresh(ti) = bgData.threshold;
+            cachedClicks(ti,:) = bgData.initClick;
+            cachedSetup(ti)  = true;
+            frameRates(ti)   = VideoReader(videoPath).FrameRate;
+            fprintf('  [%d/%d] %s (loaded from cache, threshold=%d)\n', ...
+                ti, numel(toProcess), videoFiles(vi).name, bgData.threshold);
+            continue;
+        elseif isfield(bgData, 'background')
+            % Partial cache: background exists but setup not yet saved
+            backgrounds{ti} = bgData.background;
+            frameRates(ti)  = VideoReader(videoPath).FrameRate;
+            fprintf('  [%d/%d] %s (background from cache, setup needed)\n', ...
+                ti, numel(toProcess), videoFiles(vi).name);
+            % Still need preview for setup
+            previewVid = VideoReader(videoPath);
+            previewVid.CurrentTime = previewVid.Duration / 2;
+            previewGray = imcrop(rgb2gray(readFrame(previewVid)), roi);
+            previewFrames{ti} = previewGray;
+            previewDiffs{ti}  = imabsdiff(previewGray, backgrounds{ti});
+            continue;
+        end
+    end
+
+    % Compute background from scratch
     bgVid = VideoReader(videoPath);
     frameRates(ti) = bgVid.FrameRate;
     totalFrames = floor(bgVid.Duration * bgVid.FrameRate);
@@ -140,25 +176,43 @@ for ti = 1:numel(toProcess)
     previewFrames{ti} = previewGray;
     previewDiffs{ti}  = imabsdiff(previewGray, backgrounds{ti});
 
-    fprintf('  [%d/%d] %s\n', ti, numel(toProcess), videoFiles(vi).name);
+    % Save background to cache now; threshold+click appended after setup
+    background = backgrounds{ti}; %#ok<NASGU>
+    save(bgCacheFile, 'background');
+    fprintf('  [%d/%d] %s (computed and cached)\n', ti, numel(toProcess), videoFiles(vi).name);
 end
 
 %% Per-video setup — threshold + click to mark mouse — all upfront
-fprintf('\nSetup phase: set threshold and click on the mouse for each video.\n\n');
+% Fully cached videos are skipped automatically.
+needSetup = find(~cachedSetup);
+if isempty(needSetup)
+    fprintf('\nSetup phase: all videos loaded from cache — no input needed.\n');
+else
+    fprintf('\nSetup phase: %d video(s) need threshold and click.\n\n', numel(needSetup));
+end
+
 thresholds = zeros(numel(toProcess), 1);
-initClicks = zeros(numel(toProcess), 2);   % [x y] in ROI coordinates
+initClicks = zeros(numel(toProcess), 2);
 
 for ti = 1:numel(toProcess)
+    [~, baseName] = fileparts(videoFiles(toProcess(ti)).name);
+    bgCacheFile = fullfile(outputFolder, [baseName '_bg.mat']);
+
+    if cachedSetup(ti)
+        thresholds(ti)   = cachedThresh(ti);
+        initClicks(ti,:) = cachedClicks(ti,:);
+        continue;
+    end
+
     currentThresh = diffThreshold;
     vidName   = videoFiles(toProcess(ti)).name;
-    grayFrame = previewFrames{ti};   % raw grayscale ROI — same frame as diff
+    grayFrame = previewFrames{ti};
 
     % --- Threshold tuning: left = raw frame with blob outlines, right = binary mask ---
     while true
         binaryPreview = previewDiffs{ti} > currentThresh;
         binaryPreview = bwareaopen(binaryPreview, minBlobArea);
 
-        % Overlay blob outlines on the raw grayscale frame
         overlay = repmat(grayFrame, 1, 1, 3);
         outline = bwperim(binaryPreview);
         overlay(:,:,1) = overlay(:,:,1) + uint8(outline) * 180;  % red outline
@@ -197,8 +251,14 @@ for ti = 1:numel(toProcess)
     [cx, cy] = ginput(1);
     initClicks(ti, :) = [cx, cy];
     fprintf('  Marked mouse at (%.0f, %.0f)\n\n', cx, cy);
+
+    % Save complete cache for this video
+    background = backgrounds{ti}; %#ok<NASGU>
+    threshold  = currentThresh;   %#ok<NASGU>
+    initClick  = [cx, cy];        %#ok<NASGU>
+    save(bgCacheFile, 'background', 'threshold', 'initClick');
 end
-close(1);
+if any(~cachedSetup), close(1); end
 fprintf('Setup complete. Starting processing...\n\n');
 
 %% Process each video uninterrupted
