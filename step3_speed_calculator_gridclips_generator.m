@@ -69,12 +69,16 @@ for vi = toVideoOnly
     matPath   = fullfile(outputFolder, [baseName '_centroid.mat']);
     mp4Path   = fullfile(outputFolder, [baseName '_with_tracking.mp4']);
     videoPath = fullfile(videoFiles(vi).folder, videoFiles(vi).name);
-    roi       = videoFiles(vi).roiXYWH;
-
     fprintf('\nGenerating tracking video: %s\n', videoFiles(vi).name);
     data = load(matPath);
     cx = data.centroidData.x;
     cy = data.centroidData.y;
+    % Use ROI saved at tracking time so rectangle matches centroid coordinates
+    if isfield(data, 'roi')
+        roi = data.roi;
+    else
+        roi = videoFiles(vi).roiXYWH;
+    end
 
     vid = VideoReader(videoPath);
     outVid = VideoWriter(mp4Path, 'MPEG-4');
@@ -308,7 +312,7 @@ for ti = 1:numel(toProcess)
     end
     fprintf('  Saved %d clip(s) -> %s\n', size(selectedClips,1), matPath);
 
-    save(matPath, 'centroidData', 'speed');
+    save(matPath, 'centroidData', 'speed', 'roi');
 end
 
 fprintf('\nAll done.\n');
