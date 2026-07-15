@@ -25,32 +25,8 @@ if ~exist(ppcFile, 'file')
     end
 end
 
-% Validate existing calibration: flag rows with 0, NaN, or outlier PixelsPerCm.
-% A valid entry: PixelsPerCm > 0 and within 3x / 1/3 of the cohort median.
-% Bad rows are removed so step1 re-asks only for those videos.
 if exist(ppcFile, 'file')
-    ppcTable = readtable(ppcFile, 'VariableNamingRule', 'preserve');
-    vals = ppcTable.PixelsPerCm;
-    goodMask = vals > 0 & ~isnan(vals);
-    if any(goodMask)
-        cohortMedian = median(vals(goodMask));
-        goodMask = goodMask & (vals >= cohortMedian / 3) & (vals <= cohortMedian * 3);
-    end
-    badRows = find(~goodMask);
-    if ~isempty(badRows)
-        fprintf('[Step 1] Validation: %d bad calibration row(s) detected — will re-calibrate:\n', numel(badRows));
-        for bi = 1:numel(badRows)
-            fprintf('    %s  (PixelsPerCm = %.4f)\n', ppcTable.VideoName{badRows(bi)}, vals(badRows(bi)));
-        end
-        ppcTable(badRows, :) = [];
-        writetable(ppcTable, ppcFile);
-    else
-        fprintf('[Step 1] Validation: all calibration values look correct.\n');
-    end
-end
-
-if exist(ppcFile, 'file')
-    ppcTable = readtable(ppcFile, 'VariableNamingRule', 'preserve');
+    ppcTable = readtable(ppcFile);
     coveredVideos = string(ppcTable.VideoName);
     allVideos = string({videoFiles.name}');
     missing = allVideos(~ismember(allVideos, coveredVideos));
@@ -84,6 +60,46 @@ else
     run('step2_select_roi');
 end
 
+%% Step 2b — Validate calibration against ROI width (should be ~61 cm)
+% For each video, ROI_W / PixelsPerCm should equal ~61 cm.
+% If an entry is off by more than 20%, the calibration is likely wrong.
+% Bad entries are removed from pixels_per_cm_output.xlsx and step1 reruns
+% for those videos only; step4 is also cleared so cm/s values are rebuilt.
+ppcUpdated = false;
+if exist(ppcFile, 'file') && exist(roiFile, 'file')
+    ppcT  = readtable(ppcFile,  'VariableNamingRule', 'preserve');
+    roiT  = readtable(roiFile,  'VariableNamingRule', 'preserve');
+    tolerance = 0.20;   % allow ±20% of 61 cm
+    badVideos = {};
+
+    fprintf('\n[Step 2b] Checking ROI width vs. calibration (expected ~61 cm):\n');
+    for vi = 1:height(ppcT)
+        vidName = ppcT.VideoName{vi};
+        ppc     = ppcT.PixelsPerCm(vi);
+        roiIdx  = find(strcmp(roiT.VideoName, vidName), 1);
+        if isempty(roiIdx), continue; end
+        roiW_cm = roiT.ROI_W(roiIdx) / ppc;
+        deviation = abs(roiW_cm - 61) / 61;
+        if deviation > tolerance
+            fprintf('  [BAD]  %s — ROI width = %.1f cm (expected 61, off by %.0f%%)\n', ...
+                vidName, roiW_cm, deviation * 100);
+            badVideos{end+1} = vidName;
+        else
+            fprintf('  [OK]   %s — ROI width = %.1f cm\n', vidName, roiW_cm);
+        end
+    end
+
+    if ~isempty(badVideos)
+        fprintf('\n[Step 2b] Removing %d bad calibration entry/entries and re-running step1.\n', numel(badVideos));
+        ppcT(ismember(ppcT.VideoName, badVideos), :) = [];
+        writetable(ppcT, ppcFile);
+        run('step1_pixel_per_cm_calculator');
+        ppcUpdated = true;
+    else
+        fprintf('[Step 2b] All calibrations look correct.\n');
+    end
+end
+
 %% Step 3 — Mouse tracking & clip generation
 % step3 handles its own skip logic (full retrack / video-only / complete skip)
 fprintf('[Step 3] Running step3 (handles skipping internally)...\n');
@@ -98,8 +114,14 @@ fprintf('[Step 3b] Running speed QC diagnostic...\n');
 run('step3b_qc_outliers');
 
 %% Step 4 — Speed summary table
+% Also force-rerun if calibration was corrected (cm/s values depend on ppc).
 statFile = fullfile(outputDir, 'grid_speed_stat_check.xlsx');
 matFiles = dir(fullfile(outputDir, '*centroid.mat'));
+
+if ppcUpdated && exist(statFile, 'file')
+    fprintf('[Step 4] Calibration was updated — deleting old speed table and rebuilding.\n');
+    delete(statFile);
+end
 
 if exist(statFile, 'file')
     statTable = readtable(statFile);
