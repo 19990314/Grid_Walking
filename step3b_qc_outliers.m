@@ -32,37 +32,36 @@ if isempty(matFiles)
     error('No centroid.mat files found in %s. Run step3 first.', outputDir);
 end
 
-% Summary table
-report = table('Size', [0 9], ...
-    'VariableTypes', {'string','double','double','double','double','double','string','string','string'}, ...
-    'VariableNames', {'File','TotalFrames','NaN_pct','Median_cm_s','Mean_cm_s','Max_cm_s','Flag','LastTracked','Timestamp'});
-
-runTime = datestr(now, 'yyyy-mm-dd HH:MM:SS');
-
 % Load existing report to preserve timestamps for unchanged rows
 reportFile = fullfile(outputDir, 'qc_speed_report.xlsx');
 if exist(reportFile, 'file')
     oldReport = readtable(reportFile, 'VariableNamingRule', 'preserve');
     oldReport.File = cellstr(string(oldReport.File));
-    if ~ismember('Timestamp', oldReport.Properties.VariableNames)
-        oldReport.Timestamp = repmat({''}, height(oldReport), 1);
-    else
+    if ismember('Timestamp', oldReport.Properties.VariableNames)
         oldReport.Timestamp = cellstr(string(oldReport.Timestamp));
+    else
+        oldReport.Timestamp = repmat({''}, height(oldReport), 1);
     end
 else
     oldReport = [];
 end
 
+runTime = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+
+% Summary table — single Timestamp: set when row is created or values change
+report = table('Size', [0 8], ...
+    'VariableTypes', {'string','double','double','double','double','double','string','string'}, ...
+    'VariableNames', {'File','TotalFrames','NaN_pct','Median_cm_s','Mean_cm_s','Max_cm_s','Flag','Timestamp'});
+
 fprintf('\nQC Report — %s\n', runTime);
-fprintf('%-12s  %6s  %7s  %10s  %9s  %8s  %-16s  %s\n', ...
-    'File', 'Frames', 'NaN%', 'Median cm/s', 'Mean cm/s', 'Max cm/s', 'LastTracked', 'Flag');
-fprintf('%s\n', repmat('-',1,90));
+fprintf('%-12s  %6s  %7s  %10s  %9s  %8s  %s\n', ...
+    'File', 'Frames', 'NaN%', 'Median cm/s', 'Mean cm/s', 'Max cm/s', 'Flag');
+fprintf('%s\n', repmat('-',1,72));
 
 for i = 1:numel(matFiles)
-    fileName     = matFiles(i).name;
-    fullPath     = fullfile(outputDir, fileName);
-    shortName    = fileName(1:min(7, numel(fileName)));
-    lastTracked  = datestr(matFiles(i).datenum, 'yyyy-mm-dd HH:MM');
+    fileName  = matFiles(i).name;
+    fullPath  = fullfile(outputDir, fileName);
+    shortName = fileName(1:min(7, numel(fileName)));
 
     data  = load(fullPath);
     speed = data.speed(:);
@@ -97,7 +96,7 @@ for i = 1:numel(matFiles)
     flagStr = strjoin(flags, ' | ');
     if isempty(flagStr), flagStr = 'OK'; end
 
-    % Preserve existing timestamp if values unchanged, otherwise stamp now
+    % Preserve timestamp if row exists and values are unchanged; otherwise stamp now
     ts = runTime;
     if ~isempty(oldReport)
         oldIdx = find(strcmp(oldReport.File, shortName), 1);
@@ -109,19 +108,18 @@ for i = 1:numel(matFiles)
         end
     end
 
-    fprintf('%-12s  %6d  %6.1f%%  %11.2f  %9.2f  %8.1f  %-16s  %s\n', ...
-        shortName, nTotal, nanPct, medSpd, meanSpd, maxSpd, lastTracked, flagStr);
+    fprintf('%-12s  %6d  %6.1f%%  %11.2f  %9.2f  %8.1f  %s\n', ...
+        shortName, nTotal, nanPct, medSpd, meanSpd, maxSpd, flagStr);
 
-    report(end+1,:) = {shortName, nTotal, nanPct, medSpd, meanSpd, maxSpd, flagStr, lastTracked, ts};
+    report(end+1,:) = {shortName, nTotal, nanPct, medSpd, meanSpd, maxSpd, flagStr, ts};
 end
 
-fprintf('%s\n', repmat('-',1,90));
+fprintf('%s\n', repmat('-',1,72));
 fprintf('\nFlags explained:\n');
 fprintf('  HIGH_NAN     — >30%% of frames had no detection\n');
 fprintf('  MEAN>>MEDIAN — mean speed >3x median (outlier spikes present)\n');
 fprintf('  SPIKE        — max speed >150 cm/s (physically impossible)\n');
 fprintf('\nTo reprocess a flagged file: delete its _centroid.mat and rerun step3.\n');
 
-% Save report (always overwritten — reflects current state of all mat files)
 writetable(report, reportFile);
 fprintf('\nReport saved to: %s\n', reportFile);
