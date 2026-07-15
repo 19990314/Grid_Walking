@@ -12,7 +12,7 @@ outputFile = fullfile(outputDir, 'grid_speed_stat_check.xlsx');
 
 % Load existing table if it exists, otherwise start fresh
 if exist(outputFile, 'file')
-    raw = readtable(outputFile);
+    raw = readtable(outputFile, 'VariableNamingRule', 'preserve');
     raw.FilePrefix = cellstr(raw.FilePrefix);
     % Keep only base columns for accumulation; derived columns rebuilt at the end
     if ismember('MeanSpeed pixels/frame', raw.Properties.VariableNames)
@@ -85,7 +85,7 @@ T.Day = cellfun(@(x) x(end),                 T.FilePrefix, 'UniformOutput', fals
 
 % Load pixels-per-cm lookup and match by first 7 chars of VideoName
 ppcFile  = fullfile(outputDir, 'pixels_per_cm_output.xlsx');
-ppcTable = readtable(ppcFile);
+ppcTable = readtable(ppcFile, 'VariableNamingRule', 'preserve');
 ppcTable.VideoPrefix = cellfun(@(x) x(1:min(7,length(x))), ...
     cellstr(ppcTable.VideoName), 'UniformOutput', false);
 
