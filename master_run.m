@@ -5,10 +5,17 @@
 clc;
 
 %% Select project folder once
-project_folder = uigetdir([], 'Select Project Folder');
-if isequal(project_folder, 0)
-    error('No folder selected. Operation cancelled.');
+% If called from run_batch.m, project_folder is already set — skip the dialog.
+defaultFolder = '\\moorelaboratory.dts.usc.edu\Shared\Shuting\P1-SNr';
+if ~exist('project_folder', 'var') || isempty(project_folder)
+    project_folder = uigetdir(defaultFolder, 'Select Project Folder');
+    if isequal(project_folder, 0)
+        error('No folder selected. Operation cancelled.');
+    end
 end
+fprintf('\n========================================\n');
+fprintf('Project: %s\n', project_folder);
+fprintf('========================================\n');
 outputDir = fullfile(project_folder, 'stats_and_analysis', 'grid_v2');
 
 %% Step 1 — Pixel-per-cm calibration (copy only; derived from ROI if missing/wrong)
