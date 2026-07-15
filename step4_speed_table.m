@@ -144,5 +144,7 @@ fprintf('Total in output:  %d\n', height(T));
 
 disp(T)
 
-writetable(T, outputFile);
+% Write with UseExcel=false so MATLAB's own xlsx writer is used — this
+% prevents Excel from auto-converting timestamp strings to date serial numbers.
+writetable(T, outputFile, 'UseExcel', false);
 fprintf('\nOutput saved to: %s\n', outputFile);

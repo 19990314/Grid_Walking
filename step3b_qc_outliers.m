@@ -135,5 +135,5 @@ fprintf('  MEAN>>MEDIAN — mean speed >3x median (outlier spikes present)\n');
 fprintf('  SPIKE        — max speed >150 cm/s (physically impossible)\n');
 fprintf('\nTo reprocess a flagged file: delete its _centroid.mat and rerun step3.\n');
 
-writetable(report, reportFile);
+writetable(report, reportFile, 'UseExcel', false);
 fprintf('\nReport saved to: %s\n', reportFile);

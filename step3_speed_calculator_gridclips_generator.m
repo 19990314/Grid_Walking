@@ -368,9 +368,28 @@ for ti = 1:numel(toProcess)
             day = shortName(end);
             ts  = datestr(now, 'yyyy-mm-dd HH:MM:SS');
 
-            % Ensure Timestamp column exists (backfill if table predates it)
+            % Ensure Timestamp column is a cellstr so the new row can be appended.
+            % Excel stores datetime strings as numeric serials on round-trip.
+            ts_now = datestr(now, 'yyyy-mm-dd HH:MM:SS');
             if ~ismember('Timestamp', statT.Properties.VariableNames)
-                statT.Timestamp = repmat({''}, height(statT), 1);
+                statT.Timestamp = repmat({ts_now}, height(statT), 1);
+            else
+                tscol = statT.Timestamp;
+                if isnumeric(tscol)
+                    tsfix = cell(numel(tscol), 1);
+                    for ri2 = 1:numel(tscol)
+                        if isnan(tscol(ri2)) || tscol(ri2) == 0
+                            tsfix{ri2} = ts_now;
+                        else
+                            tsfix{ri2} = datestr(tscol(ri2), 'yyyy-mm-dd HH:MM:SS');
+                        end
+                    end
+                    statT.Timestamp = tsfix;
+                else
+                    statT.Timestamp = cellstr(string(tscol));
+                    blank2 = cellfun(@(x) isempty(strtrim(x)), statT.Timestamp);
+                    statT.Timestamp(blank2) = {ts_now};
+                end
             end
 
             % Build new row with explicit column names
@@ -387,7 +406,7 @@ for ti = 1:numel(toProcess)
                 end
             end
             statT(end+1, :) = newRow(:, statT.Properties.VariableNames);
-            writetable(statT, statFile);
+            writetable(statT, statFile, 'UseExcel', false);
             fprintf('  Speed table updated: added row %s\n', secondPrefix);
         end
     end

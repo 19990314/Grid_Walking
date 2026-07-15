@@ -131,3 +131,4 @@ end
 
 %% Done
 fprintf('\n=== Pipeline complete. Outputs in: %s ===\n', outputDir);
+clearvars;
