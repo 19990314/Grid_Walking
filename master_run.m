@@ -51,17 +51,10 @@ else
 end
 
 %% Step 3 — Mouse tracking & clip generation
-allVideos = string({videoFiles.name}');
-missingMat = allVideos(arrayfun(@(v) ...
-    ~exist(fullfile(outputDir, [char(erase(v, '.mp4')) '_centroid.mat']), 'file'), allVideos));
-
-if isempty(missingMat)
-    fprintf('[Step 3] Skipping — all %d videos already tracked.\n', numel(allVideos));
-else
-    fprintf('[Step 3] Running — %d video(s) not yet tracked.\n', numel(missingMat));
-    outputFolder = outputDir;  % step3 uses this variable name
-    run('step3_speed_calculator_gridclips_generator');
-end
+% step3 handles its own skip logic (full retrack / video-only / complete skip)
+fprintf('[Step 3] Running step3 (handles skipping internally)...\n');
+outputFolder = outputDir;  % step3 uses this variable name
+run('step3_speed_calculator_gridclips_generator');
 
 %% Step 3b — QC speed diagnostic
 % Always runs so you see an up-to-date report after any reprocessing.
