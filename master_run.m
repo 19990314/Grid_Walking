@@ -75,10 +75,11 @@ if exist(roiFile, 'file')
         end
     end
 
-    writetable(ppcT, ppcFile);
-    fprintf('[Step 2b] PixelsPerCm set from ROI_W/61 for %d video(s).\n', height(ppcT));
     if ppcUpdated
-        fprintf('[Step 2b] Calibration changed — step4 will rebuild.\n');
+        writetable(ppcT, ppcFile);
+        fprintf('[Step 2b] Calibration updated for %d video(s) — step4 will rebuild.\n', height(ppcT));
+    else
+        fprintf('[Step 2b] PixelsPerCm unchanged — no file write.\n');
     end
 end
 
