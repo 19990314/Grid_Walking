@@ -421,7 +421,9 @@ for ti = 1:numel(toProcess)
 
             id  = shortName(1:min(4, length(shortName)));
             day = shortName(end);
-            newRow = table({secondPrefix}, medSpd, meanSpd, {id}, {day}, ppc, ...
+            ts = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+            % Build new row matching all columns; Timestamp filled now
+            newRow = table({secondPrefix}, medSpd, meanSpd, {ts}, {id}, {day}, ppc, ...
                 medSpd * 30 / ppc, meanSpd * 30 / ppc, ...
                 'VariableNames', statT.Properties.VariableNames);
             statT(end+1, :) = newRow;

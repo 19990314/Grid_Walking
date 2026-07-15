@@ -33,11 +33,26 @@ if isempty(matFiles)
 end
 
 % Summary table
-report = table('Size', [0 8], ...
-    'VariableTypes', {'string','double','double','double','double','double','string','string'}, ...
-    'VariableNames', {'File','TotalFrames','NaN_pct','Median_cm_s','Mean_cm_s','Max_cm_s','Flag','LastTracked'});
+report = table('Size', [0 9], ...
+    'VariableTypes', {'string','double','double','double','double','double','string','string','string'}, ...
+    'VariableNames', {'File','TotalFrames','NaN_pct','Median_cm_s','Mean_cm_s','Max_cm_s','Flag','LastTracked','Timestamp'});
 
 runTime = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+
+% Load existing report to preserve timestamps for unchanged rows
+reportFile = fullfile(outputDir, 'qc_speed_report.xlsx');
+if exist(reportFile, 'file')
+    oldReport = readtable(reportFile, 'VariableNamingRule', 'preserve');
+    oldReport.File = cellstr(string(oldReport.File));
+    if ~ismember('Timestamp', oldReport.Properties.VariableNames)
+        oldReport.Timestamp = repmat({''}, height(oldReport), 1);
+    else
+        oldReport.Timestamp = cellstr(string(oldReport.Timestamp));
+    end
+else
+    oldReport = [];
+end
+
 fprintf('\nQC Report — %s\n', runTime);
 fprintf('%-12s  %6s  %7s  %10s  %9s  %8s  %-16s  %s\n', ...
     'File', 'Frames', 'NaN%', 'Median cm/s', 'Mean cm/s', 'Max cm/s', 'LastTracked', 'Flag');
@@ -82,10 +97,22 @@ for i = 1:numel(matFiles)
     flagStr = strjoin(flags, ' | ');
     if isempty(flagStr), flagStr = 'OK'; end
 
+    % Preserve existing timestamp if values unchanged, otherwise stamp now
+    ts = runTime;
+    if ~isempty(oldReport)
+        oldIdx = find(strcmp(oldReport.File, shortName), 1);
+        if ~isempty(oldIdx) && ...
+           abs(oldReport.Median_cm_s(oldIdx) - medSpd)  < 1e-6 && ...
+           abs(oldReport.Mean_cm_s(oldIdx)   - meanSpd) < 1e-6
+            existingTs = oldReport.Timestamp{oldIdx};
+            if ~isempty(existingTs), ts = existingTs; end
+        end
+    end
+
     fprintf('%-12s  %6d  %6.1f%%  %11.2f  %9.2f  %8.1f  %-16s  %s\n', ...
         shortName, nTotal, nanPct, medSpd, meanSpd, maxSpd, lastTracked, flagStr);
 
-    report(end+1,:) = {shortName, nTotal, nanPct, medSpd, meanSpd, maxSpd, flagStr, lastTracked};
+    report(end+1,:) = {shortName, nTotal, nanPct, medSpd, meanSpd, maxSpd, flagStr, lastTracked, ts};
 end
 
 fprintf('%s\n', repmat('-',1,90));
@@ -96,6 +123,5 @@ fprintf('  SPIKE        — max speed >150 cm/s (physically impossible)\n');
 fprintf('\nTo reprocess a flagged file: delete its _centroid.mat and rerun step3.\n');
 
 % Save report (always overwritten — reflects current state of all mat files)
-reportFile = fullfile(outputDir, 'qc_speed_report.xlsx');
 writetable(report, reportFile);
 fprintf('\nReport saved to: %s\n', reportFile);

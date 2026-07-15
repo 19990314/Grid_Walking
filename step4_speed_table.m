@@ -10,35 +10,40 @@ matFiles = dir(fullfile(outputDir, '*centroid.mat'));
 % Define output file path
 outputFile = fullfile(outputDir, 'grid_speed_stat_check.xlsx');
 
+% Base columns accumulated across runs
+baseCols = {'FilePrefix', 'MedianSpeed pixels/frame', 'MeanSpeed pixels/frame', 'Timestamp'};
+
 % Load existing table if it exists, otherwise start fresh
 if exist(outputFile, 'file')
     raw = readtable(outputFile, 'VariableNamingRule', 'preserve');
     raw.FilePrefix = cellstr(raw.FilePrefix);
-    % Keep only base columns for accumulation; derived columns rebuilt at the end
-    if ismember('MeanSpeed pixels/frame', raw.Properties.VariableNames)
-        existingTable = raw(:, {'FilePrefix', 'MedianSpeed pixels/frame', 'MeanSpeed pixels/frame'});
-    else
-        % older file without mean column — add NaN column so schema matches
+    % Ensure MeanSpeed column exists
+    if ~ismember('MeanSpeed pixels/frame', raw.Properties.VariableNames)
         raw.("MeanSpeed pixels/frame") = nan(height(raw), 1);
-        existingTable = raw(:, {'FilePrefix', 'MedianSpeed pixels/frame', 'MeanSpeed pixels/frame'});
     end
+    % Ensure Timestamp column exists (backfill blanks for older rows)
+    if ~ismember('Timestamp', raw.Properties.VariableNames)
+        raw.Timestamp = repmat({''}, height(raw), 1);
+    else
+        raw.Timestamp = cellstr(raw.Timestamp);
+    end
+    existingTable = raw(:, baseCols);
     fprintf('Found existing output with %d entries. Will skip already-processed files.\n', height(existingTable));
 else
     existingTable = [];
     fprintf('No existing output found. Will process all files.\n');
 end
 
-nSkipped  = 0;
+nSkipped   = 0;
 nProcessed = 0;
 
 fprintf('\nProcessing %d mat files...\n', length(matFiles));
 
 for i = 1:length(matFiles)
     fileName  = matFiles(i).name;
-    fullPath  = fullfile(project_folder, fileName);
     shortName = fileName(1:min(7, end));
 
-    % Skip if already in the table
+    % Skip if already in the table (timestamp preserved as-is)
     if ~isempty(existingTable) && ismember(shortName, existingTable.FilePrefix)
         nSkipped = nSkipped + 1;
         fprintf('  [%d/%d] Skipping %s (already processed)\n', i, length(matFiles), shortName);
@@ -60,9 +65,10 @@ for i = 1:length(matFiles)
     end
     medianSpeed = median(spd, 'omitnan');
     meanSpeed   = mean(spd,   'omitnan');
+    ts          = datestr(now, 'yyyy-mm-dd HH:MM:SS');
 
-    newRow = table({shortName}, medianSpeed, meanSpeed, ...
-        'VariableNames', {'FilePrefix', 'MedianSpeed pixels/frame', 'MeanSpeed pixels/frame'});
+    newRow = table({shortName}, medianSpeed, meanSpeed, {ts}, ...
+        'VariableNames', baseCols);
 
     if isempty(existingTable)
         existingTable = newRow;
@@ -78,6 +84,7 @@ end
 % -------------------- DERIVED COLUMNS --------------------
 T = existingTable;
 T.FilePrefix = cellstr(T.FilePrefix);
+T.Timestamp  = cellstr(T.Timestamp);
 
 % ID = first 4 chars, Day = last char of 7-char prefix
 T.ID  = cellfun(@(x) x(1:min(4,length(x))), T.FilePrefix, 'UniformOutput', false);
