@@ -365,21 +365,34 @@ for ti = 1:numel(toProcess)
         end
     end
 
-    subfolder = fullfile(clipBaseFolder, baseName);
-    if ~exist(subfolder, 'dir'), mkdir(subfolder); end
-    clipVid = VideoReader(videoPath);
-    for ci = 1:size(selectedClips,1)
-        clipFileName = fullfile(subfolder, sprintf('clip_%03d.mp4', ci));
-        clipWriter = VideoWriter(clipFileName, 'MPEG-4');
+    % Write all clips into a single assembled mp4, labeled 1-N
+    assembledPath = fullfile(clipBaseFolder, [baseName '_clips.mp4']);
+    subfolder     = fullfile(clipBaseFolder, baseName);
+    skipClips = exist(assembledPath, 'file') || exist(subfolder, 'dir');
+    if skipClips
+        fprintf('  Clips already exist — skipping clip generation.\n');
+    else
+        clipVid    = VideoReader(videoPath);
+        clipWriter = VideoWriter(assembledPath, 'MPEG-4');
+        clipWriter.FrameRate = frameRate;
         open(clipWriter);
-        clipVid.CurrentTime = (selectedClips(ci,1) - 1) / frameRate;
-        for fi = selectedClips(ci,1):selectedClips(ci,2)
-            if hasFrame(clipVid), writeVideo(clipWriter, readFrame(clipVid)); end
+        for ci = 1:size(selectedClips,1)
+            clipVid.CurrentTime = (selectedClips(ci,1) - 1) / frameRate;
+            for fi = selectedClips(ci,1):selectedClips(ci,2)
+                if ~hasFrame(clipVid), break; end
+                fr = readFrame(clipVid);
+                fr = insertText(fr, [10 10], sprintf('Clip %d / %d', ci, size(selectedClips,1)), ...
+                    'FontSize', 20, 'BoxColor', 'black', 'TextColor', 'white', 'BoxOpacity', 0.6);
+                writeVideo(clipWriter, fr);
+            end
         end
         close(clipWriter);
+        fprintf('  Saved %d clip(s) -> %s\n', size(selectedClips,1), assembledPath);
     end
-    fprintf('  Saved %d clip(s) -> %s\n', size(selectedClips,1), matPath);
 
+    % Delete existing assembled clips so they are rebuilt from the new mat
+    assembledPath = fullfile(clipBaseFolder, [baseName '_clips.mp4']);
+    if exist(assembledPath, 'file'), delete(assembledPath); end
     save(matPath, 'centroidData', 'speed', 'roi');
 end
 
