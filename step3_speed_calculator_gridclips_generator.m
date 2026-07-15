@@ -219,47 +219,55 @@ for ti = 1:numel(toProcess)
     frameNumber = 0;
     lastCentroid = initClicks(ti, :);  % seeded from user click — ROI coordinates
 
+    mp4Path = fullfile(outputFolder, [baseName '_with_tracking.mp4']);
     if saveTrackingVideo
-        outputVideo = VideoWriter(fullfile(outputFolder, [baseName '_with_tracking.mp4']), 'MPEG-4');
+        % Delete any partial file left by a previous crashed run
+        if exist(mp4Path, 'file'), delete(mp4Path); end
+        outputVideo = VideoWriter(mp4Path, 'MPEG-4');
         outputVideo.FrameRate = frameRate;
         open(outputVideo);
     end
 
-    while hasFrame(video)
-        frame = readFrame(video);
-        frameNumber = frameNumber + 1;
+    try
+        while hasFrame(video)
+            frame = readFrame(video);
+            frameNumber = frameNumber + 1;
 
-        roiFrame    = imcrop(rgb2gray(frame), roi);
-        diffFrame   = imabsdiff(roiFrame, background);
-        binaryFrame = diffFrame > thresholds(ti);
-        binaryFrame = bwareaopen(binaryFrame, minBlobArea);
+            roiFrame    = imcrop(rgb2gray(frame), roi);
+            diffFrame   = imabsdiff(roiFrame, background);
+            binaryFrame = diffFrame > thresholds(ti);
+            binaryFrame = bwareaopen(binaryFrame, minBlobArea);
 
-        stats = regionprops(binaryFrame, 'Area', 'Centroid');
-        if isempty(stats)
-            centroidData.x(end+1,1) = NaN;
-            centroidData.y(end+1,1) = NaN;
-            % keep lastCentroid so re-detection resumes from last known position
-            if saveTrackingVideo, writeVideo(outputVideo, frame); end
-            continue;
+            stats = regionprops(binaryFrame, 'Area', 'Centroid');
+            if isempty(stats)
+                centroidData.x(end+1,1) = NaN;
+                centroidData.y(end+1,1) = NaN;
+                % keep lastCentroid so re-detection resumes from last known position
+                if saveTrackingVideo, writeVideo(outputVideo, frame); end
+                continue;
+            end
+
+            centroids = vertcat(stats.Centroid);
+
+            % Always pick blob closest to last known position (seeded from user click)
+            dists = sum((centroids - lastCentroid).^2, 2);
+            [~, idx] = min(dists);
+
+            centroid = stats(idx).Centroid;
+            lastCentroid = centroid;  % update for next frame
+            centroid = centroid + [roi(1), roi(2)];
+            centroidData.x(end+1,1) = centroid(1);
+            centroidData.y(end+1,1) = centroid(2);
+
+            if saveTrackingVideo
+                frameWithTracking = insertMarker(frame, centroid, 'o', 'Color', 'red', 'Size', 10);
+                frameWithTracking = insertShape(frameWithTracking, 'Rectangle', roi, 'Color', 'yellow', 'LineWidth', 3);
+                writeVideo(outputVideo, frameWithTracking);
+            end
         end
-
-        centroids = vertcat(stats.Centroid);
-
-        % Always pick blob closest to last known position (seeded from user click)
-        dists = sum((centroids - lastCentroid).^2, 2);
-        [~, idx] = min(dists);
-
-        centroid = stats(idx).Centroid;
-        lastCentroid = centroid;  % update for next frame
-        centroid = centroid + [roi(1), roi(2)];
-        centroidData.x(end+1,1) = centroid(1);
-        centroidData.y(end+1,1) = centroid(2);
-
-        if saveTrackingVideo
-            frameWithTracking = insertMarker(frame, centroid, 'o', 'Color', 'red', 'Size', 10);
-            frameWithTracking = insertShape(frameWithTracking, 'Rectangle', roi, 'Color', 'yellow', 'LineWidth', 3);
-            writeVideo(outputVideo, frameWithTracking);
-        end
+    catch ME
+        if saveTrackingVideo && isopen(outputVideo), close(outputVideo); end
+        rethrow(ME);
     end
 
     if saveTrackingVideo, close(outputVideo); end
