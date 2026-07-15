@@ -321,63 +321,10 @@ for ti = 1:numel(toProcess)
     fprintf('  Done: %d frames, %d NaN (%.1f%%)\n', frameNumber, ...
         sum(isnan(centroidData.x)), sum(isnan(centroidData.x))/frameNumber*100);
 
-    %% Speed & clip selection
+    %% Speed calculation
     speed = sqrt(diff(centroidData.x).^2 + diff(centroidData.y).^2);
 
-    speedThreshold  = 3;
-    startFrameLimit = 0 * 60 * frameRate;
-    endFrameLimit   = 5 * 60 * frameRate;
-    highSpeedFrames = find(speed > speedThreshold);
-    highSpeedFrames = highSpeedFrames(highSpeedFrames >= startFrameLimit & highSpeedFrames <= endFrameLimit);
-
-    numClips      = 50;
-    clipLength    = round(frameRate / 2);
-    selectedClips = [];
-    shuffledFrames = highSpeedFrames(randperm(length(highSpeedFrames)));
-
-    for j = 1:length(shuffledFrames)
-        if size(selectedClips,1) >= numClips, break; end
-        startFrame = shuffledFrames(j);
-        endFrame   = startFrame + clipLength - 1;
-        overlapTooHigh = false;
-        for k = 1:size(selectedClips,1)
-            overlap = max(0, min(endFrame, selectedClips(k,2)) - max(startFrame, selectedClips(k,1)) + 1);
-            if overlap > 0.5 * clipLength
-                overlapTooHigh = true;
-                break;
-            end
-        end
-        if ~overlapTooHigh
-            selectedClips(end+1,:) = [startFrame, endFrame];
-        end
-    end
-
-    % Write all clips into a single assembled mp4, labeled 1-N
-    assembledPath = fullfile(clipBaseFolder, [baseName '_clips.mp4']);
-    subfolder     = fullfile(clipBaseFolder, baseName);
-    skipClips = exist(assembledPath, 'file') || exist(subfolder, 'dir');
-    if skipClips
-        fprintf('  Clips already exist — skipping clip generation.\n');
-    else
-        clipVid    = VideoReader(videoPath);
-        clipWriter = VideoWriter(assembledPath, 'MPEG-4');
-        clipWriter.FrameRate = frameRate;
-        open(clipWriter);
-        for ci = 1:size(selectedClips,1)
-            clipVid.CurrentTime = (selectedClips(ci,1) - 1) / frameRate;
-            for fi = selectedClips(ci,1):selectedClips(ci,2)
-                if ~hasFrame(clipVid), break; end
-                fr = readFrame(clipVid);
-                fr = insertText(fr, [10 10], sprintf('Clip %d / %d', ci, size(selectedClips,1)), ...
-                    'FontSize', 20, 'BoxColor', 'black', 'TextColor', 'white', 'BoxOpacity', 0.6);
-                writeVideo(clipWriter, fr);
-            end
-        end
-        close(clipWriter);
-        fprintf('  Saved %d clip(s) -> %s\n', size(selectedClips,1), assembledPath);
-    end
-
-    % Delete existing assembled clips so they are rebuilt from the new mat
+    % Delete existing assembled clips so they are rebuilt from the fresh mat
     assembledPath = fullfile(clipBaseFolder, [baseName '_clips.mp4']);
     if exist(assembledPath, 'file'), delete(assembledPath); end
     % Preserve cached bg/threshold/initClick if already saved in this mat
@@ -443,6 +390,109 @@ for ti = 1:numel(toProcess)
             writetable(statT, statFile);
             fprintf('  Speed table updated: added row %s\n', secondPrefix);
         end
+    end
+end
+
+%% Clip generation pass — runs over ALL videos
+% Generates assembled clips mp4 when:
+%   (1) neither the assembled mp4 nor the clip subfolder exists, OR
+%   (2) the mat was freshly tracked this run (assembled mp4 was deleted above)
+%
+% Condition 2 is covered by condition 1 because freshly tracked videos had
+% their assembled mp4 deleted before the mat was saved.
+
+fprintf('\n--- Clip generation pass ---\n');
+
+clipDuration   = 2;    % seconds per clip
+nClips         = 50;   % number of clips to select
+clipFrameCount = [];   % computed per video from frameRate
+
+for vi = 1:numel(videoFiles)
+    [~, baseName] = fileparts(videoFiles(vi).name);
+    matPath      = fullfile(outputFolder, [baseName '_centroid.mat']);
+    assembledPath = fullfile(clipBaseFolder, [baseName '_clips.mp4']);
+    subFolder    = fullfile(clipBaseFolder, baseName);
+
+    % Skip if no mat (video was never tracked)
+    if ~exist(matPath, 'file')
+        fprintf('  [%d/%d] %s — no mat, skipping clips\n', vi, numel(videoFiles), videoFiles(vi).name);
+        continue;
+    end
+
+    % Skip if assembled mp4 OR clip subfolder already exists
+    if exist(assembledPath, 'file') || exist(subFolder, 'dir')
+        fprintf('  [%d/%d] %s — clips already exist, skipping\n', vi, numel(videoFiles), videoFiles(vi).name);
+        continue;
+    end
+
+    fprintf('  [%d/%d] %s — generating clips...\n', vi, numel(videoFiles), videoFiles(vi).name);
+    videoPath = fullfile(videoFiles(vi).folder, videoFiles(vi).name);
+
+    % Load mat to get speed
+    data  = load(matPath);
+    speed = data.speed(:);
+
+    % Get frame rate
+    tmpVid   = VideoReader(videoPath);
+    clipFR   = tmpVid.FrameRate;
+    clipLen  = round(clipDuration * clipFR);  % frames per clip
+    nTotal   = numel(speed) + 1;              % speed has N-1 values for N frames
+
+    % Select nClips evenly spaced by speed (highest-speed frames, one per window)
+    windowSize = floor(nTotal / nClips);
+    selectedClips = zeros(nClips, 1);
+    for c = 1:nClips
+        winStart = (c-1)*windowSize + 1;
+        winEnd   = min(c*windowSize, numel(speed));
+        if winStart > numel(speed), winStart = numel(speed); end
+        if winEnd   < winStart,     winEnd   = winStart;     end
+        [~, localIdx] = max(speed(winStart:winEnd));
+        selectedClips(c) = winStart + localIdx - 1;
+    end
+
+    % Load ROI from mat (so it matches where tracking was done)
+    if isfield(data, 'roi')
+        clipRoi = data.roi;
+    else
+        clipRoi = videoFiles(vi).roiXYWH;
+    end
+
+    % Write assembled clips mp4
+    try
+        clipWriter = VideoWriter(assembledPath, 'MPEG-4');
+        clipWriter.FrameRate = clipFR;
+        open(clipWriter);
+
+        for c = 1:nClips
+            startFrame = max(1, selectedClips(c) - floor(clipLen/2));
+            endFrame   = min(nTotal, startFrame + clipLen - 1);
+
+            clipVid = VideoReader(videoPath);
+            clipVid.CurrentTime = (startFrame - 1) / clipFR;
+            fRead = 0;
+            while hasFrame(clipVid) && fRead < (endFrame - startFrame + 1)
+                fr = readFrame(clipVid);
+                fRead = fRead + 1;
+                absFrame = startFrame + fRead - 1;
+                % Annotate centroid if available
+                if isfield(data, 'centroidData') && absFrame <= numel(data.centroidData.x)
+                    cx_f = data.centroidData.x(absFrame);
+                    cy_f = data.centroidData.y(absFrame);
+                    if ~isnan(cx_f)
+                        fr = insertMarker(fr, [cx_f cy_f], 'o', 'Color', 'red', 'Size', 10);
+                    end
+                end
+                fr = insertShape(fr, 'Rectangle', clipRoi, 'Color', 'yellow', 'LineWidth', 3);
+                fr = insertText(fr, [10 10], sprintf('Clip %d / %d', c, nClips), ...
+                    'FontSize', 18, 'BoxColor', 'black', 'TextColor', 'white');
+                writeVideo(clipWriter, fr);
+            end
+        end
+        close(clipWriter);
+        fprintf('    Saved: %s\n', assembledPath);
+    catch ME
+        if exist('clipWriter','var') && isopen(clipWriter), close(clipWriter); end
+        warning('Clip generation failed for %s: %s', videoFiles(vi).name, ME.message);
     end
 end
 
