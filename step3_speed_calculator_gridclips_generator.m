@@ -394,6 +394,41 @@ for ti = 1:numel(toProcess)
     assembledPath = fullfile(clipBaseFolder, [baseName '_clips.mp4']);
     if exist(assembledPath, 'file'), delete(assembledPath); end
     save(matPath, 'centroidData', 'speed', 'roi');
+
+    % If this video already has an entry in the speed table, it is a re-track.
+    % Add / overwrite a "_second" row with the updated speed values.
+    statFile  = fullfile(outputFolder, 'grid_speed_stat_check.xlsx');
+    shortName = baseName(1:min(7, length(baseName)));
+    if exist(statFile, 'file')
+        statT = readtable(statFile, 'VariableNamingRule', 'preserve');
+        if ismember(shortName, statT.FilePrefix)
+            secondPrefix = [shortName '_s2'];
+            % Remove any stale _s2 row for this video
+            statT(strcmp(statT.FilePrefix, secondPrefix), :) = [];
+
+            % Compute updated speed stats
+            medSpd  = median(speed, 'omitnan');
+            meanSpd = mean(speed,   'omitnan');
+
+            % Look up PixelsPerCm
+            ppcFile2 = fullfile(outputFolder, 'pixels_per_cm_output.xlsx');
+            ppc = NaN;
+            if exist(ppcFile2, 'file')
+                ppcT2   = readtable(ppcFile2, 'VariableNamingRule', 'preserve');
+                ppcIdx  = find(strcmp(ppcT2.VideoName, videoFiles(vi).name), 1);
+                if ~isempty(ppcIdx), ppc = ppcT2.PixelsPerCm(ppcIdx); end
+            end
+
+            id  = shortName(1:min(4, length(shortName)));
+            day = shortName(end);
+            newRow = table({secondPrefix}, medSpd, meanSpd, {id}, {day}, ppc, ...
+                medSpd * 30 / ppc, meanSpd * 30 / ppc, ...
+                'VariableNames', statT.Properties.VariableNames);
+            statT(end+1, :) = newRow;
+            writetable(statT, statFile);
+            fprintf('  Speed table updated: added row %s\n', secondPrefix);
+        end
+    end
 end
 
 fprintf('\nAll done.\n');
