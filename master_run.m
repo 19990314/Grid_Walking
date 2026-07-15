@@ -104,30 +104,18 @@ fprintf('[Step 3b] Running speed QC diagnostic...\n');
 run('step3b_qc_outliers');
 
 %% Step 4 — Speed summary table
-% Also force-rerun if calibration was corrected (cm/s values depend on ppc).
+% Always runs: step4 handles its own per-entry skip logic and always rewrites
+% the file (with UseExcel=false), which keeps timestamps correct on every run.
+% Force-delete first if calibration was corrected so cm/s values rebuild clean.
 statFile = fullfile(outputDir, 'grid_speed_stat_check.xlsx');
-matFiles = dir(fullfile(outputDir, '*centroid.mat'));
 
 if ppcUpdated && exist(statFile, 'file')
     fprintf('[Step 4] Calibration was updated — deleting old speed table and rebuilding.\n');
     delete(statFile);
 end
 
-if exist(statFile, 'file')
-    statTable = readtable(statFile);
-    coveredPrefixes = string(statTable.FilePrefix);
-    allPrefixes = string(arrayfun(@(f) f.name(1:min(7,end)), matFiles, 'UniformOutput', false));
-    missing = allPrefixes(~ismember(allPrefixes, coveredPrefixes));
-    if isempty(missing)
-        fprintf('[Step 4] Skipping — all %d entries already in speed table.\n', numel(allPrefixes));
-    else
-        fprintf('[Step 4] Running — %d entry/entries missing from speed table.\n', numel(missing));
-        run('step4_speed_table');
-    end
-else
-    fprintf('[Step 4] Running — no speed table found.\n');
-    run('step4_speed_table');
-end
+fprintf('[Step 4] Running step4 (handles per-entry skipping internally)...\n');
+run('step4_speed_table');
 
 %% Done
 fprintf('\n=== Pipeline complete. Outputs in: %s ===\n', outputDir);
