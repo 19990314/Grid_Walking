@@ -54,8 +54,7 @@ for i = 1:length(videoFiles)
     fprintf('  Requesting ROI for %s...\n', vidName);
     videoPath = fullfile(videoFiles(i).folder, videoFiles(i).name);
     v = VideoReader(videoPath);
-    v.CurrentTime = max(0, v.Duration/2);
-    frame = readFrame(v);
+    frame = readFrame(v);  % first frame — avoids slow network seek
 
     figure(1); clf;
     imshow(frame);
