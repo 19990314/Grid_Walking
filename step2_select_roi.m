@@ -53,23 +53,28 @@ for i = 1:length(videoFiles)
     % New video — request ROI from user
     fprintf('  Requesting ROI for %s...\n', vidName);
     videoPath = fullfile(videoFiles(i).folder, videoFiles(i).name);
-    v = VideoReader(videoPath);
-    frame = readFrame(v);  % first frame — avoids slow network seek
+    try
+        v = VideoReader(videoPath);
+        frame = readFrame(v);  % first frame — avoids slow network seek
+    catch ME
+        warning('Could not read %s: %s — skipping.', vidName, ME.message);
+        continue;
+    end
 
     figure(1); clf;
     imshow(frame);
-    title(sprintf('Draw ROI (double-click to finalize): %s', videoFiles(i).name), ...
+    title(sprintf('[%d/%d] Draw ROI then double-click: %s', i, numel(videoFiles), videoFiles(i).name), ...
           'Interpreter', 'none');
 
     hRoi = drawrectangle('Color','g');
     wait(hRoi);
     roiPos = hRoi.Position;   % [x y w h]
 
-    % Annotate
+    % Annotate briefly — no pause so nothing can be interrupted
     hold on;
     text(roiPos(1), max(1, roiPos(2)-10), sprintf('ROI: [%.0f %.0f %.0f %.0f]', roiPos), ...
         'Color', 'g', 'FontSize', 11, 'FontWeight', 'bold');
-    pause(0.5);
+    drawnow;
 
     % Store in struct
     videoFiles(i).roiXYWH     = roiPos;
