@@ -58,6 +58,6 @@ outputDir = fullfile(project_folder, 'stats_and_analysis/grid_v2');
 if ~exist(outputDir, 'dir')
     mkdir(outputDir);
 end
-writetable(T, fullfile(outputDir, 'pixels_per_cm_output.xlsx'));
+writetable(T, fullfile(outputDir, 'pixels_per_cm_output.xlsx'), 'UseExcel', false);
 
 disp('Data saved to ./stats_and_analysis/grid_v2/pixels_per_cm_output.xlsx');

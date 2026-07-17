@@ -83,7 +83,7 @@ if exist(roiFile, 'file')
     end
 
     if ppcUpdated
-        writetable(ppcT, ppcFile);
+        writetable(ppcT, ppcFile, 'UseExcel', false);
         fprintf('[Step 2b] Calibration updated for %d video(s) — step4 will rebuild.\n', height(ppcT));
     else
         fprintf('[Step 2b] PixelsPerCm unchanged — no file write.\n');

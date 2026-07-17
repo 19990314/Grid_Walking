@@ -89,7 +89,7 @@ for i = 1:length(videoFiles)
         existingTable = [existingTable; newRow];
     end
 
-    writetable(existingTable, outFile);
+    writetable(existingTable, outFile, 'UseExcel', false);
     fprintf('  Saved ROI for %s to roi.xlsx\n', vidName);
 end
 
